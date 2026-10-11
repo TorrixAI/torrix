@@ -1,0 +1,29 @@
+{
+  "name": "torrix",
+  "displayName": "Torrix for Claude Code",
+  "version": "1.0.0",
+  "description": "Logs every Claude Code model call (tokens, cache, cost, prompts, tool calls, subagents) to your self-hosted Torrix instance.",
+  "author": { "name": "Torrix" },
+  "license": "FSL-1.1-ALv2",
+  "keywords": ["observability", "llm", "cost", "tracing", "torrix"],
+  "userConfig": {
+    "base_url": {
+      "type": "string",
+      "title": "Torrix URL",
+      "description": "Base URL of your Torrix instance.",
+      "default": "http://127.0.0.1:8088"
+    },
+    "api_key": {
+      "type": "string",
+      "title": "Torrix API key",
+      "description": "A trxk_ key from Torrix > API Keys. Stored in the OS secure store.",
+      "sensitive": true,
+      "required": true
+    },
+    "project": {
+      "type": "string",
+      "title": "Torrix project",
+      "description": "Optional project id or name. Leave empty for your default project."
+    }
+  }
+}

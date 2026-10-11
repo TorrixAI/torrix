@@ -1,0 +1,23 @@
+[Unit]
+Description=Torrix - self-hosted LLM observability
+Documentation=https://torrix.ai
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/torrix
+WorkingDirectory=/var/lib/torrix
+Environment=PORT=__PORT__
+Environment=DB_PATH=__DB_PATH__
+Environment=NODE_ENV=production
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/torrix
+
+[Install]
+WantedBy=multi-user.target

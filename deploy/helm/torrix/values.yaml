@@ -1,0 +1,140 @@
+# Default values for the Torrix chart.
+replicaCount: 1
+
+image:
+  repository: gettorrixai/torrix
+  pullPolicy: IfNotPresent
+  tag: "1.0.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 8088
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: torrix.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  size: 5Gi
+  mountPath: /data
+
+# Extra environment variables passed to the container. Secrets belong in
+# `existingSecret` instead where possible.
+env: []
+#  - name: TORRIX_LICENSE_KEY
+#    value: <signed license>   # prefer existingSecret for this
+
+# Existing Secret with extra env vars (key/value pairs, base64-encoded).
+existingSecret: ""
+
+# Optional Postgres. When `postgres.url` is set it is injected as
+# TORRIX_DATABASE_URL and the SQLite PVC is ignored by the app.
+postgres:
+  url: ""
+  existingSecret: ""
+  existingSecretKey: database-url
+
+config:
+  # Optional ceiling only: paid editions are unlocked by a license key, and this
+  # value can lower the edition but never raise it. Leave empty for no cap.
+  edition: ""
+  telemetry: false
+  localHost: ""
+  retentionDays: ""
+
+livenessProbe:
+  enabled: true
+  path: /health
+  initialDelaySeconds: 15
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  path: /health
+  initialDelaySeconds: 5
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Enforced routing. With `networkPolicy.enabled`, the Torrix pod only accepts
+# traffic from `ingressFrom` peers, and every entry in `protectedDownstreams`
+# gets a NetworkPolicy in its own namespace that admits ingress from Torrix
+# pods only, so agents cannot reach those MCP servers except through
+# /gateway/mcp. Requires a CNI that enforces NetworkPolicy (Calico, Cilium, ...).
+networkPolicy:
+  enabled: false
+  # Peers allowed to reach Torrix (ingress controller, agent namespaces).
+  # Empty means any pod in any namespace may connect to the service port.
+  ingressFrom: []
+  #  - namespaceSelector:
+  #      matchLabels:
+  #        kubernetes.io/metadata.name: ingress-nginx
+  egress:
+    # When true, Torrix egress is limited to DNS, the protected downstreams and
+    # `allowTo`; LLM provider endpoints then need an `allowTo` entry.
+    restrict: false
+    allowTo: []
+    #  - to:
+    #      - ipBlock:
+    #          cidr: 0.0.0.0/0
+    #          except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+    #    ports:
+    #      - port: 443
+    #        protocol: TCP
+  protectedDownstreams: []
+  #  - name: procurement-mcp
+  #    namespace: erp
+  #    podSelector:
+  #      matchLabels:
+  #        app: procurement-mcp
+  #    ports:
+  #      - port: 8080
+  #        protocol: TCP
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+topologySpreadConstraints: []

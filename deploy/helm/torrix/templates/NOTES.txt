@@ -1,0 +1,34 @@
+Torrix {{ .Chart.AppVersion }} is being installed. The edition follows the license key (community without one).
+
+1. Build and load the image (the chart defaults to `{{ .Values.image.repository }}:{{ .Values.image.tag }}`):
+
+     docker build -t {{ .Values.image.repository }}:{{ .Values.image.tag }} .
+     # kind: kind load docker-image {{ .Values.image.repository }}:{{ .Values.image.tag }}
+     # minikube: minikube image load {{ .Values.image.repository }}:{{ .Values.image.tag }}
+
+2. Reach the UI:
+
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+     http://{{ .host }}/
+{{- end }}
+{{- else if contains "NodePort" .Values.service.type }}
+     export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "torrix.fullname" . }})
+     export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+     http://$NODE_IP:$NODE_PORT/
+{{- else if contains "LoadBalancer" .Values.service.type }}
+     kubectl get --namespace {{ .Release.Namespace }} svc {{ include "torrix.fullname" . }} -w
+{{- else }}
+     kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "torrix.fullname" . }} 8088:{{ .Values.service.port }}
+     then open http://localhost:8088/
+{{- end }}
+
+3. The first signup creates the community-edition admin (no users are seeded).
+   Create an API key in the UI and point your LLM client at:
+     http://<host>:<port>/proxy
+   with headers `x-target-url` and `x-upstream-authorization`.
+
+{{- if and (not .Values.persistence.enabled) (not .Values.postgres.url) }}
+WARNING: persistence is disabled and no Postgres URL is set — all data lives in
+an emptyDir and is lost when the pod is replaced.
+{{- end }}

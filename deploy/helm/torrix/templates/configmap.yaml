@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "torrix.fullname" . }}
+  labels:
+    {{- include "torrix.labels" . | nindent 4 }}
+data:
+  PORT: "8088"
+  {{- if .Values.config.edition }}
+  TORRIX_EDITION: {{ .Values.config.edition | quote }}
+  {{- end }}
+  TORRIX_TELEMETRY: {{ .Values.config.telemetry | quote }}
+  TORRIX_OPEN_BROWSER: "false"
+  DOCKER_CONTAINER: "true"
+  {{- if .Values.config.localHost }}
+  TORRIX_LOCAL_HOST: {{ .Values.config.localHost | quote }}
+  {{- end }}
+  {{- if .Values.config.retentionDays }}
+  TORRIX_RETENTION_DAYS: {{ .Values.config.retentionDays | quote }}
+  {{- end }}

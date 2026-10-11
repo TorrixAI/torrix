@@ -1,0 +1,17 @@
+node_modules
+.git
+.gitignore
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+db.preference.json
+packages/sdk-python
+ui-preview
+TODO.md
+DESIGN.md
+MEMORY.md
+AGENTS.md
+Dockerfile
+docker-compose.yml
+README.md
+**/*.md

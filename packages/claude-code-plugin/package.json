@@ -1,0 +1,13 @@
+{
+  "name": "@torrix/claude-code-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@torrix/server": "workspace:*",
+    "@types/bun": "latest"
+  }
+}

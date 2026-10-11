@@ -1,0 +1,16 @@
+apiVersion: v2
+name: torrix
+description: Self-hosted LLM observability (proxy, traces, evals, cost)
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.24.0-0"
+home: https://torrix.ai
+sources:
+  - https://github.com/TorrixAI/torrix
+keywords:
+  - llm
+  - observability
+  - ai
+  - proxy
+  - governance

@@ -1,0 +1,49 @@
+services:
+  torrix:
+    # Pulls the published image. `docker compose up --build` builds this checkout instead.
+    image: gettorrixai/torrix:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      # Paid editions come from a signed license key, not an edition variable.
+      # TORRIX_LICENSE_KEY: <license>
+      DOCKER_CONTAINER: "true"
+      DB_PATH: /data/torrix.sqlite
+      TORRIX_TELEMETRY: "false"
+      TORRIX_OPEN_BROWSER: "false"
+      # TORRIX_DATABASE_URL: postgres://torrix:torrix@db:5432/torrix
+    volumes:
+      - torrix_data:/data
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:8088/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Optional Postgres backend. Enable with:
+  #   docker compose --profile postgres up -d
+  # then set TORRIX_DATABASE_URL in the torrix service above.
+  db:
+    profiles: ["postgres"]
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: torrix
+      POSTGRES_PASSWORD: torrix
+      POSTGRES_DB: torrix
+    volumes:
+      - torrix_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U torrix -d torrix"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  torrix_data:
+  torrix_pg:

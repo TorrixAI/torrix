@@ -1,0 +1,17 @@
+{
+  "name": "torrix",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --cwd packages/server dev",
+    "start": "bun run --cwd packages/server start",
+    "test": "bun run --cwd packages/server test",
+    "test:sdk": "bun run --cwd packages/sdk-ts test",
+    "typecheck": "bun run --cwd packages/server typecheck",
+    "test:plugin": "bun run --cwd packages/claude-code-plugin test",
+    "test:py": "cd packages/sdk-python && python -m unittest discover -s tests -t ."
+  }
+}

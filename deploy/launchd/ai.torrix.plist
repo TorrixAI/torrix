@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.torrix</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/torrix</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PORT</key>
+    <string>__PORT__</string>
+    <key>DB_PATH</key>
+    <string>__DB_PATH__</string>
+    <key>TORRIX_OPEN_BROWSER</key>
+    <string>false</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/torrix.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/torrix.err</string>
+</dict>
+</plist>

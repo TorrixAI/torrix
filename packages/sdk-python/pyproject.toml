@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "torrix"
+version = "1.0.0"
+description = "Self-hosted LLM observability: log and control every model call through Torrix."
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Torrix" }]
+keywords = ["llm", "observability", "proxy", "monitoring", "analytics"]
+dependencies = []
+
+[project.optional-dependencies]
+openai = ["openai>=1.0.0"]
+
+[tool.setuptools.packages.find]
+include = ["torrix*"]
+
+[tool.setuptools.package-data]
+torrix = ["py.typed"]

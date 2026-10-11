@@ -1,0 +1,29 @@
+{
+  "name": "@torrix/server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/sdk.ts",
+    "./testing": "./test/helpers.ts"
+  },
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "compile": "bun build --compile --outfile ../../dist/torrix src/index.ts",
+    "mcp": "bun src/mcpStdio.ts",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "bcryptjs": "^2.4.3",
+    "fastify": "^5.1.0",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/bun": "latest",
+    "typescript": "^5.6.3"
+  }
+}

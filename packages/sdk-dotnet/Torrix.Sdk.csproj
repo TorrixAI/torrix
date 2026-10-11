@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Torrix</RootNamespace>
+    <AssemblyName>Torrix.Sdk</AssemblyName>
+    <PackageId>Torrix.Sdk</PackageId>
+    <Version>1.0.0</Version>
+    <Description>Self-hosted LLM observability SDK for Torrix: ingest runs and route provider traffic through a Torrix proxy.</Description>
+  </PropertyGroup>
+
+</Project>

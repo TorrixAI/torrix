@@ -1,0 +1,37 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "openai": {
+      "options": {
+        "baseURL": "http://localhost:8088/proxy",
+        "apiKey": "trxk_REPLACE_WITH_TORRIX_KEY",
+        "headers": {
+          "x-target-url": "https://api.openai.com/v1/chat/completions",
+          "x-upstream-authorization": "Bearer sk-REPLACE_WITH_OPENAI_KEY"
+        }
+      }
+    },
+    "anthropic": {
+      "options": {
+        "baseURL": "http://localhost:8088/proxy",
+        "apiKey": "sk-ant-REPLACE_WITH_ANTHROPIC_KEY",
+        "headers": {
+          "Authorization": "Bearer trxk_REPLACE_WITH_TORRIX_KEY",
+          "x-target-url": "https://api.anthropic.com/v1/messages",
+          "x-torrix-provider": "anthropic"
+        }
+      }
+    }
+  },
+  "mcp": {
+    "torrix": {
+      "type": "remote",
+      "url": "http://localhost:8088/mcp",
+      "enabled": true,
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer trxk_REPLACE_WITH_TORRIX_KEY"
+      }
+    }
+  }
+}

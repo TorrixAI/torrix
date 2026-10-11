@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.sqlite*
+.env
+.idea/
+.vscode/
+**/__pycache__/
+*.pyc
+.venv/
+uv.lock
+~$*
+torrix-media/
+
+# .NET build output (.NET SDK packages)
+bin/
+obj/
+*.user

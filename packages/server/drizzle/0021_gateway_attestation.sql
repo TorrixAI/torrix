@@ -1,0 +1,1 @@
+ALTER TABLE mcp_servers ADD COLUMN sign_requests INTEGER NOT NULL DEFAULT 0;
