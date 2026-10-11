@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import * as path from "node:path";
+import { BRAND_LOGO_PATH, FONT_PATHS } from "../assets/files";
 import { editionAtLeast, type Edition, type ServerConfig } from "../core/config";
 import type { ExtensionHost } from "../core/extensionHost";
 import { lockedFeature, type LockedFeature } from "../core/lockedFeatures";
@@ -1203,7 +1204,7 @@ export async function uiRoute(app: FastifyInstance, deps: UiDeps): Promise<void>
   app.get("/", async (_request, reply) => reply.redirect("/ui/dashboard"));
 
   app.get("/ui/assets/torrix-logo.png", async (_request, reply) => {
-    const logo = Bun.file(path.join(import.meta.dir, "..", "assets", "torrix-logo.png"));
+    const logo = Bun.file(BRAND_LOGO_PATH);
     if (!(await logo.exists())) {
       return reply.code(404).send({ error: "not_found" });
     }
@@ -1246,21 +1247,13 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
     return reply.redirect("/ui/login");
   });
 
-  const fontDir = path.join(import.meta.dir, "..", "assets", "fonts");
-  const fontFiles = new Set([
-    "geist-latin.woff2",
-    "geist-latin-ext.woff2",
-    "space-grotesk-latin.woff2",
-    "space-grotesk-latin-ext.woff2",
-    "jetbrains-mono-latin.woff2",
-    "jetbrains-mono-latin-ext.woff2",
-  ]);
   app.get("/ui/fonts/:file", async (request, reply) => {
     const { file } = request.params as { file: string };
-    if (!fontFiles.has(file)) {
+    const fontPath = FONT_PATHS[file];
+    if (!fontPath) {
       return reply.code(404).send({ error: "not_found" });
     }
-    const font = Bun.file(path.join(fontDir, file));
+    const font = Bun.file(fontPath);
     if (!(await font.exists())) {
       return reply.code(404).send({ error: "not_found" });
     }

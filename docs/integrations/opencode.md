@@ -35,6 +35,7 @@ Requires opencode 2.x.
    | `TORRIX_URL` | no | Torrix address, default `http://localhost:8088` |
    | `TORRIX_PROJECT` | no | project id or name |
    | `TORRIX_TAGS` | no | extra labels, `key=value,key=value` |
+   | `TORRIX_DEBUG` | no | `1` writes plugin diagnostics to `torrix-opencode.log` in your temp folder |
 
 The **Integrations** page shows these commands with your key filled in.
 
@@ -42,7 +43,7 @@ The **Integrations** page shows these commands with your key filled in.
 
 | In Torrix | Comes from |
 |---|---|
-| Run | one opencode step (one model call) |
+| Run | one opencode step (one model call), sent as soon as the step ends |
 | Session | the root opencode session, so a whole conversation stays together |
 | Trace | one user turn, including every subagent it started |
 | Agent | the opencode agent: `build`, `plan`, `explore` and so on |
@@ -53,3 +54,11 @@ The **Integrations** page shows these commands with your key filled in.
 If you also point opencode's provider base URL at the Torrix proxy, the plugin tells the proxy not
 to store successful calls a second time, so each call is recorded once. Failed calls are still
 recorded by the proxy. Set `TORRIX_INGEST=false` if you want the proxy to be the only source.
+
+## Nothing shows up?
+
+- Start opencode from a terminal opened **after** you set the variables. A terminal that was
+  already open, or an editor started earlier, still has the old values.
+- Open the **Integrations** page in Torrix. The opencode card says **Connected** once a run arrives.
+- Set `TORRIX_DEBUG=1`, run one prompt, and read `torrix-opencode.log` in your temp folder. It
+  shows whether the plugin loaded, whether it found your key, and what Torrix answered.

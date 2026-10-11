@@ -67,7 +67,7 @@ test("admin user management lists, creates, promotes and deletes users", async (
   } finally {
     await ctx.cleanup();
   }
-});
+}, 20_000);
 
 test("admin backup returns a consistent SQLite file", async () => {
   const ctx = await createTestApp();

@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { openDatabase } from "../src/db/client";
 import { migrationDirs } from "../src/db/dirs";
-import { runMigrations } from "../src/db/migrate";
+import { EMBEDDED_CORE_MIGRATIONS } from "../src/db/embeddedMigrations";
+import { runMigrations, runMigrationSources } from "../src/db/migrate";
 import { sqlAll } from "../src/db/sql";
 import { createTestApp, createTestDb } from "./helpers";
 
@@ -68,5 +73,46 @@ test("GET /health responds from the booted app", async () => {
     expect(body.version).toMatch(/^\d+\.\d+\.\d+$/);
   } finally {
     await ctx.cleanup();
+  }
+});
+
+test("embedded migrations cover every SQL file on disk", () => {
+  const dirs = migrationDirs();
+  for (const [dialect, dir] of [
+    ["sqlite", dirs.sqlite],
+    ["postgres", dirs.postgres],
+  ] as const) {
+    const files = fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
+    expect(Object.keys(EMBEDDED_CORE_MIGRATIONS[dialect]).sort()).toEqual(files);
+  }
+});
+
+test("migrations run from embedded SQL with no files on disk", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "torrix-embedded-"));
+  const db = openDatabase(path.join(dir, "test.sqlite"));
+  const source = {
+    id: "core",
+    dirs: { sqlite: path.join(dir, "missing"), postgres: path.join(dir, "missing") },
+    files: EMBEDDED_CORE_MIGRATIONS,
+  };
+  try {
+    await runMigrationSources(db, [source]);
+    const applied = await sqlAll<{ name: string }>(db.engine, "SELECT name FROM _migrations");
+    expect(applied.length).toBe(Object.keys(EMBEDDED_CORE_MIGRATIONS.sqlite).length);
+    const tables = await sqlAll<{ name: string }>(
+      db.engine,
+      "SELECT name FROM sqlite_master WHERE type = 'table'",
+    );
+    expect(tables.some((t) => t.name === "runs")).toBe(true);
+
+    await runMigrationSources(db, [source]);
+    const again = await sqlAll<{ name: string }>(db.engine, "SELECT name FROM _migrations");
+    expect(again.length).toBe(applied.length);
+  } finally {
+    db.engine.close();
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

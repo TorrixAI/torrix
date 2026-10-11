@@ -6,12 +6,16 @@ node_modules
 *.sqlite-shm
 db.preference.json
 packages/sdk-python
+# Paid sources: never part of the Community image build context. The paid
+# image is built with Dockerfile.enterprise and its own ignore file.
+packages/enterprise
 ui-preview
 TODO.md
 DESIGN.md
 MEMORY.md
 AGENTS.md
 Dockerfile
+Dockerfile.enterprise
 docker-compose.yml
 README.md
 **/*.md

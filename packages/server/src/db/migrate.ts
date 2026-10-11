@@ -8,26 +8,41 @@ export interface MigrationDirs {
   postgres: string;
 }
 
+/** SQL text embedded at build time, used instead of reading `dirs` from disk. */
+export interface MigrationFiles {
+  sqlite: Record<string, string>;
+  postgres: Record<string, string>;
+}
+
 /**
  * A named set of per-dialect migration dirs. Core files are recorded in
  * `_migrations` by bare file name (as they always were); every other source is
  * namespaced as `<id>/<file>` so extensions can never collide with core.
+ * When `files` is present it replaces the disk read entirely, so a compiled
+ * binary needs no drizzle folder beside it.
  */
 export interface MigrationSource {
   id: string;
   dirs: MigrationDirs;
+  files?: MigrationFiles;
 }
 
 export const CORE_MIGRATION_SOURCE_ID = "core";
 
 export async function runMigrationSources(db: DbClient, sources: readonly MigrationSource[]): Promise<void> {
   for (const source of sources) {
-    await runMigrations(db, source.dirs, source.id === CORE_MIGRATION_SOURCE_ID ? "" : `${source.id}/`);
+    await runMigrations(db, source.dirs, source.id === CORE_MIGRATION_SOURCE_ID ? "" : `${source.id}/`, source.files);
   }
 }
 
-export async function runMigrations(db: DbClient, dirs: MigrationDirs | string, prefix = ""): Promise<void> {
-  const dir = path.resolve(typeof dirs === "string" ? dirs : dirs[db.dialect]);
+export async function runMigrations(
+  db: DbClient,
+  dirs: MigrationDirs | string,
+  prefix = "",
+  files?: MigrationFiles,
+): Promise<void> {
+  const embedded = files?.[db.dialect];
+  const dir = embedded ? "" : path.resolve(typeof dirs === "string" ? dirs : dirs[db.dialect]);
   await db.engine.exec(
     "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)",
   );
@@ -35,17 +50,16 @@ export async function runMigrations(db: DbClient, dirs: MigrationDirs | string, 
     (await sqlAll<{ name: string }>(db.engine, "SELECT name FROM _migrations")).map((r) => r.name),
   );
 
-  const files = fs
-    .readdirSync(dir)
+  const names = (embedded ? Object.keys(embedded) : fs.readdirSync(dir))
     .filter((f) => f.endsWith(".sql"))
     .sort();
 
-  for (const file of files) {
+  for (const file of names) {
     const name = `${prefix}${file}`;
     if (applied.has(name)) {
       continue;
     }
-    const sql = fs.readFileSync(path.join(dir, file), "utf8");
+    const sql = embedded ? embedded[file] : fs.readFileSync(path.join(dir, file), "utf8");
     try {
       await db.engine.transaction(async () => {
         await db.engine.exec(sql);

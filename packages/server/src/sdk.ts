@@ -1,3 +1,4 @@
+/// <reference path="./assets/modules.d.ts" />
 // Public surface for separately distributed Torrix editions. Extensions import
 // from "@torrix/server" (this file) or "@torrix/server/testing", never from deep
 // source paths, so the core can be refactored without breaking them.

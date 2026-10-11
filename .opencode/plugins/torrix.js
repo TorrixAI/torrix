@@ -8,6 +8,7 @@
 //   TORRIX_TAGS      optional "key=value,key=value" extra tags
 //   TORRIX_INGEST    "false" disables the /api/ingest path
 //   TORRIX_PROXY_TAGS "false" disables x-torrix-* header tagging on /proxy traffic
+//   TORRIX_DEBUG     "1" appends plugin diagnostics to <temp dir>/torrix-opencode.log
 //
 // Subagents: opencode runs them in child sessions. Each run is stored with
 // session_id = root session (whole conversation), trace_id = the user turn
@@ -17,9 +18,15 @@
 // the first meaningful prompt line (subagent boilerplate is skipped) plus the
 // tools each step ran, so multi-step turns stay distinguishable.
 //
-// Turns are ingested from the session transcript once an execution settles, so
-// a record is built from opencode's final message state (text, reasoning, tool
-// calls, tokens, cost) instead of streamed fragments.
+// Each step is ingested from the session transcript as soon as it ends, so long
+// agent turns show up live; a record is built from opencode's final message
+// state (text, reasoning, tool calls, tokens, cost) instead of streamed
+// fragments. When an execution settles, any step that never reported an end
+// (interrupted or failed mid-stream) is ingested from the same transcript.
+
+import { appendFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const TORRIX_URL = (process.env.TORRIX_URL ?? "http://localhost:8088").replace(/\/+$/, "");
 const TORRIX_API_KEY = (process.env.TORRIX_API_KEY ?? "").trim();
@@ -27,6 +34,17 @@ const TORRIX_PROJECT = (process.env.TORRIX_PROJECT ?? "").trim();
 const TORRIX_TAGS = parsePairs(process.env.TORRIX_TAGS ?? "");
 const INGEST_ENABLED = TORRIX_API_KEY !== "" && (process.env.TORRIX_INGEST ?? "true") !== "false";
 const PROXY_TAGS = (process.env.TORRIX_PROXY_TAGS ?? "true") !== "false";
+const DEBUG_LOG = process.env.TORRIX_DEBUG === "1" ? join(tmpdir(), "torrix-opencode.log") : "";
+
+function debug(message) {
+  if (!DEBUG_LOG) return;
+  try {
+    appendFileSync(DEBUG_LOG, `${new Date().toISOString()} ${message}
+`);
+  } catch {
+    // diagnostics are best effort
+  }
+}
 
 const MAX_SESSION_STATE = 400;
 const MAX_INGESTED = 2000;
@@ -101,6 +119,7 @@ export default {
   id: "torrix",
 
   async setup(ctx) {
+    debug(`loaded: ingest=${INGEST_ENABLED} url=${TORRIX_URL}`);
     const sessionParent = new Map();
     const currentRunBySession = new Map();
     const lastRunBySession = new Map();
@@ -120,14 +139,16 @@ export default {
 
     const postRecord = async (record) => {
       try {
-        await fetch(`${TORRIX_URL}/api/ingest`, {
+        const res = await fetch(`${TORRIX_URL}/api/ingest`, {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${TORRIX_API_KEY}` },
           body: JSON.stringify({ records: [record] }),
           signal: AbortSignal.timeout(5000),
         });
-      } catch {
+        debug(`ingest ${record.id}: ${res.status}${res.ok ? "" : ` ${(await res.text()).slice(0, 200)}`}`);
+      } catch (err) {
         // never fail the opencode session because Torrix is unreachable
+        debug(`ingest ${record.id} failed: ${err?.message ?? err}`);
       }
     };
 
@@ -255,6 +276,18 @@ export default {
       await postRecord(record);
     };
 
+    const ingestStep = async (sessionID, messageID) => {
+      if (!INGEST_ENABLED || !sessionID || !messageID || ingested.has(messageID)) return;
+      try {
+        const messages = await ctx.session.context({ sessionID });
+        const message = messages.find((m) => m.type === "assistant" && m.id === messageID);
+        if (!message || !(message.time?.completed || message.error)) return;
+        await ingestAssistant(sessionID, message, messages, "succeeded");
+      } catch (err) {
+        debug(`step ${messageID} skipped: ${err?.message ?? err}`);
+      }
+    };
+
     const ingestSettled = async (sessionID, outcome, reason) => {
       if (!INGEST_ENABLED) return;
       const startedAt = executionStartedAt.get(sessionID);
@@ -277,8 +310,9 @@ export default {
         for (const message of startedAt === undefined ? candidates.slice(-1) : candidates) {
           await ingestAssistant(sessionID, message, messages, outcome, reason);
         }
-      } catch {
+      } catch (err) {
         // transcript reads must never disturb opencode
+        debug(`settle ${sessionID} skipped: ${err?.message ?? err}`);
       }
     };
 
@@ -316,6 +350,11 @@ export default {
           currentRunBySession.set(data.sessionID, data.assistantMessageID);
           trimMap(currentRunBySession, MAX_SESSION_STATE);
         }
+        return;
+      }
+
+      if (type === "session.step.ended") {
+        void ingestStep(data.sessionID, data.assistantMessageID);
         return;
       }
 
