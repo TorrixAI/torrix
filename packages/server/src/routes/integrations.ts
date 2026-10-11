@@ -106,10 +106,10 @@ function cards(base: string, source: string): Card[] {
           text: "Then add two lines where your app starts:",
           code: `import torrix\n\ntorrix.init(api_key="${KEY}", base_url="${base}")\ntorrix.wrap()  # patches OpenAI and Anthropic clients`,
         },
-        { text: "TypeScript or JavaScript: install the SDK.", code: "npm install torrix" },
+        { text: "TypeScript or JavaScript: install the SDK.", code: "npm install torrix-sdk" },
         {
           text: "Then wrap your client:",
-          code: `import * as torrix from "torrix";\n\ntorrix.init("${KEY}", "${base}");\ntorrix.wrap(client);`,
+          code: `import * as torrix from "torrix-sdk";\n\ntorrix.init("${KEY}", "${base}");\ntorrix.wrap(client);`,
         },
       ],
     },

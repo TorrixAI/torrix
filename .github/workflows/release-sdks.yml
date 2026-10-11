@@ -43,13 +43,14 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: bun install
       - run: bun run test:sdk
-      - name: Publish torrix to npm
+      - name: Publish the TypeScript SDK to npm
         working-directory: packages/sdk-ts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if npm view "torrix@${{ needs.check.outputs.version }}" version >/dev/null 2>&1; then
-            echo "torrix@${{ needs.check.outputs.version }} is already on npm"
+          name=$(node -p "require('./package.json').name")
+          if npm view "$name@${{ needs.check.outputs.version }}" version >/dev/null 2>&1; then
+            echo "$name@${{ needs.check.outputs.version }} is already on npm"
             exit 0
           fi
           npm publish --provenance --access public
@@ -73,7 +74,7 @@ jobs:
           python -m unittest discover -s tests -t .
           python -m pip install --upgrade build
           python -m build
-      - name: Publish torrix to PyPI
+      - name: Publish the Python SDK to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: packages/sdk-python/dist

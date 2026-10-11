@@ -7,15 +7,15 @@
     },
     "packages/claude-code-plugin": {
       "name": "@torrix/claude-code-plugin",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "devDependencies": {
         "@torrix/server": "workspace:*",
         "@types/bun": "latest",
       },
     },
     "packages/sdk-ts": {
-      "name": "torrix",
-      "version": "1.1.0",
+      "name": "torrix-sdk",
+      "version": "1.1.1",
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5.6.3",
@@ -23,7 +23,7 @@
     },
     "packages/server": {
       "name": "@torrix/server",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "dependencies": {
         "@fastify/cors": "^10.0.1",
         "bcryptjs": "^2.4.3",
@@ -156,7 +156,7 @@
 
     "toad-cache": ["toad-cache@3.7.4", "", {}, "sha512-m1TdR/rvT7kgGJZhspNtXdsdYk0fddFpJJFlG5s+UkPFo6lkLoZ3YLOaovPYjq1R75NP5JfeTlSHaOsE09peCg=="],
 
-    "torrix": ["torrix@workspace:packages/sdk-ts"],
+    "torrix-sdk": ["torrix-sdk@workspace:packages/sdk-ts"],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

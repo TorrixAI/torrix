@@ -1,22 +1,22 @@
 # TypeScript SDK
 
-The TypeScript SDK (`torrix`) records calls made with the official OpenAI and Anthropic
+The TypeScript SDK (`torrix-sdk`) records calls made with the official OpenAI and Anthropic
 clients, including streaming, and plugs into the Vercel AI SDK. It has no dependencies and sends
 data in the background. It runs on Node.js 18+, Bun and Deno.
 
 ## Install
 
 ```bash
-npm install torrix
+npm install torrix-sdk
 ```
 
-`pnpm add torrix`, `yarn add torrix` and `bun add torrix` work too.
+`pnpm add torrix-sdk`, `yarn add torrix-sdk` and `bun add torrix-sdk` work too.
 
 ## Set up
 
 ```ts
 import OpenAI from "openai";
-import * as torrix from "torrix";
+import * as torrix from "torrix-sdk";
 
 torrix.init("trxk_YOUR_KEY", "http://localhost:8088");
 
@@ -69,7 +69,7 @@ Both fields are removed before the request goes to the provider.
 ```ts
 import { wrapLanguageModel } from "ai";
 import { openai } from "@ai-sdk/openai";
-import { torrixMiddleware } from "torrix";
+import { torrixMiddleware } from "torrix-sdk";
 
 const model = wrapLanguageModel({
   model: openai("gpt-4o-mini"),

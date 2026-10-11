@@ -7,7 +7,7 @@ and wrapping); `runContext` uses `node:async_hooks` and is Node/Bun only.
 ## Install
 
 ```sh
-npm install torrix
+npm install torrix-sdk
 # or from this repo: bun run build --cwd packages/sdk-ts
 ```
 
@@ -15,7 +15,7 @@ npm install torrix
 
 ```ts
 import OpenAI from "openai";
-import * as torrix from "torrix";
+import * as torrix from "torrix-sdk";
 
 torrix.init("trxk_...", "http://localhost:8088");
 
@@ -74,7 +74,7 @@ call; they are stripped before the request leaves the process and applied to the
 
 ```ts
 import { wrapLanguageModel } from "ai";
-import { torrixMiddleware } from "torrix";
+import { torrixMiddleware } from "torrix-sdk";
 
 const model = wrapLanguageModel({
   model: openai("gpt-4o"),

@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/TorrixAI/torrix?label=release)](https://github.com/TorrixAI/torrix/releases)
 [![Docker pulls](https://img.shields.io/docker/pulls/gettorrixai/torrix)](https://hub.docker.com/r/gettorrixai/torrix)
 [![PyPI](https://img.shields.io/pypi/v/torrix-sdk?label=pypi)](https://pypi.org/project/torrix-sdk/)
-[![npm](https://img.shields.io/npm/v/torrix?label=npm)](https://www.npmjs.com/package/torrix)
+[![npm](https://img.shields.io/npm/v/torrix-sdk?label=npm)](https://www.npmjs.com/package/torrix-sdk)
 [![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue)](LICENSE)
 
 **The system of record for your AI agents: what they did, what it cost, and what they were allowed to do.**
