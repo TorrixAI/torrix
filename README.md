@@ -1,30 +1,52 @@
 # Torrix
 
-**See every AI call your apps and agents make, on your own servers.**
+**The system of record for your AI agents: what they did, what it cost, and what they were allowed to do.**
 
-Torrix sits between your code and your LLM providers. Every call is recorded with its prompt,
-response, tokens, cost, latency and tool calls, and grouped into the conversations and agent runs
-it belongs to. You run it yourself, so your data never leaves your infrastructure.
+Torrix sits between your agents and your LLM providers and tools. Every model call, tool call and
+MCP call is recorded with its prompt, response, tokens, cost and latency, and linked into the agent
+run it belongs to. You run it yourself, so your data never leaves your infrastructure.
 
-This repository is the free **Community edition**.
+This repository is the free **Community edition**: full observability and cost control for agents.
+The paid editions add the other half, deciding what agents may do before they do it.
 
 ![Torrix dashboard](docs/images/dashboard.png)
 
-## What you get
+## Why Torrix
 
-- **One place for all AI traffic.** OpenAI, Anthropic, Gemini, DeepSeek, Groq, OpenRouter,
-  local models and anything else that speaks HTTP.
-- **Traces of agent runs.** See each user turn as a tree of model calls, tool calls and
-  subagents, or as a timeline. Find the step that failed or cost the most.
-- **Cost you can trust.** Per call, per model, per agent and per project, including prompt
-  cache pricing. Budgets, hard caps and alerts to Slack, webhooks, PagerDuty or email.
+- **Built for agents, not single prompts.** Each user turn becomes a tree of model calls, tool
+  calls and subagents, with a timeline view, branch totals and the failing step highlighted.
+  Coding agents work out of the box: install the Claude Code or opencode plugin and every session
+  shows up with its cost.
+- **Cost control that stops spending, not just charts.** Budgets and hard caps per user, project
+  and API key. When a cap is reached, calls are refused before they reach the provider. Alerts go
+  to Slack, webhooks, PagerDuty or email.
+- **MCP aware.** See which MCP tools your agents call, how often, and which ones fail.
+- **Runs in a minute.** One process and one SQLite file. No ClickHouse, Redis or queue to operate.
+  Postgres, Docker, Helm and a single binary when you need them.
 - **Works with what you already use.** A drop-in HTTP proxy, Python and TypeScript SDKs,
-  OpenTelemetry, plugins for Claude Code and opencode, and .NET and Java clients.
-- **Built for daily work.** Live feed, search, prompt library with versions, datasets and
+  OpenTelemetry, .NET and Java clients, and Helicone-compatible headers. OpenAI, Anthropic,
+  Gemini, DeepSeek, Groq, OpenRouter, local models and anything else that speaks HTTP.
+- **Everything for daily work.** Live feed, search, prompt library with versions, datasets and
   evaluations, a playground, PII masking, and an MCP server so your coding assistant can query
   your traces.
-- **Simple to run.** One process, SQLite by default, Postgres when you need it. Docker, Helm or a
-  single binary.
+
+## From observing agents to governing them
+
+Seeing what an agent did is the first step. Most teams soon need to control it too.
+
+| | Community (free) | Pro | Enterprise |
+|---|---|---|---|
+| Traces, agent trees, cost, budgets, hard caps, evals, PII masking | ✓ | ✓ | ✓ |
+| LLM judge, online evaluations and guardrails built from your evaluations | | ✓ | ✓ |
+| Model routing, fallbacks and small-model savings | | ✓ | ✓ |
+| Policy engine and human review queue | | ✓ | ✓ |
+| Agent identities and delegated authority: which agent may do what, on whose behalf | | | ✓ |
+| Governed MCP gateway: tool calls are checked and denied or held for approval before they run | | | ✓ |
+| Approvals, audit trail, EU AI Act reports, single sign-on | | | ✓ |
+
+The paid editions run on your servers too and keep your Community data when you upgrade. See
+[Editions and licensing](docs/editions-and-licensing.md), or
+[start a discussion](https://github.com/TorrixAI/torrix/discussions) to ask about a trial.
 
 ## Quick start
 
@@ -73,14 +95,6 @@ The call goes to OpenAI as usual, and shows up in Torrix under **Runs** a moment
 | [Privacy and security](docs/privacy-and-security.md) | What is stored, what leaves your server, PII masking |
 | [Editions and licensing](docs/editions-and-licensing.md) | Community, Pro and Enterprise, and what the license allows |
 | [FAQ](docs/faq.md) | Common questions |
-
-## Editions
-
-The Community edition is free and covers observability, cost control and evaluations. Teams that
-need agent governance, policies, routing, single sign-on and compliance reporting can upgrade to
-**Pro** or **Enterprise** by switching to the paid image with a license key. Your data carries over.
-See
-[Editions and licensing](docs/editions-and-licensing.md).
 
 ## Contributing
 
