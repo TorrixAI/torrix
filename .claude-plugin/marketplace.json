@@ -7,7 +7,7 @@
       "name": "torrix",
       "source": "./packages/claude-code-plugin",
       "description": "Log Claude Code model calls, cost and subagent trees to self-hosted Torrix.",
-      "version": "1.0.0"
+      "version": "1.1.0"
     }
   ]
 }

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { loadConfig } from "../src/core/config";
 import { TRUSTED_LICENSE_KEYS } from "../src/core/licenseKeys";
+import { getUserLimit } from "../src/lib/auth";
 import { grantFromLicense, loadStoredLicense, verifyLicense } from "../src/lib/license";
 import { createTestDb, licenseSigner } from "./helpers";
 
@@ -95,4 +96,31 @@ test("a stored license is applied on boot through the trusted keys", async () =>
   } finally {
     await ctx.cleanup();
   }
+});
+
+test("community limits people, not data", () => {
+  const cfg = loadConfig({}).editionConfig;
+  expect(cfg.maxRuns).toBe(Number.POSITIVE_INFINITY);
+  expect(cfg.retentionDays).toBe(Number.POSITIVE_INFINITY);
+  expect(cfg.maxDatasets).toBe(Number.POSITIVE_INFINITY);
+  expect(cfg.fullTextSearch).toBe(true);
+  expect(cfg.userLimit).toBe(5);
+});
+
+test("TORRIX_RETENTION_DAYS sets a cleanup window for every edition", () => {
+  expect(loadConfig({ TORRIX_RETENTION_DAYS: "30" }).editionConfig.retentionDays).toBe(30);
+  const licensed = loadConfig({ TORRIX_RETENTION_DAYS: "14" });
+  licensed.license.override("enterprise");
+  expect(licensed.editionConfig.retentionDays).toBe(14);
+  expect(loadConfig({ TORRIX_RETENTION_DAYS: "nope" }).editionConfig.retentionDays).toBe(Number.POSITIVE_INFINITY);
+});
+
+test("TORRIX_USER_LIMIT can lower the user limit but never raise it", () => {
+  expect(loadConfig({ TORRIX_USER_LIMIT: "1000" }).editionConfig.userLimit).toBe(5);
+  expect(loadConfig({ TORRIX_USER_LIMIT: "2" }).editionConfig.userLimit).toBe(2);
+  const licensed = loadConfig({ TORRIX_USER_LIMIT: "20" });
+  licensed.license.override("pro");
+  expect(licensed.editionConfig.userLimit).toBe(20);
+  expect(getUserLimit({ userLimit: 5 }, "1000")).toBe(5);
+  expect(getUserLimit({ userLimit: null }, "7")).toBe(7);
 });

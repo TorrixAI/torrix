@@ -9,8 +9,10 @@ Requires Python 3.9 or newer.
 ## Install
 
 ```bash
-pip install "git+https://github.com/TorrixAI/torrix.git#subdirectory=packages/sdk-python"
+pip install torrix-sdk
 ```
+
+The package is called `torrix-sdk`; in your code you `import torrix`.
 
 ## Set up
 

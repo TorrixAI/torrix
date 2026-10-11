@@ -1,0 +1,55 @@
+name: Bug report
+description: Something in Torrix does not work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please leave prompts, responses and API keys out of this issue.
+        For security problems, do not open an issue: see SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we reproduce it?
+      placeholder: |
+        1. Start Torrix with ...
+        2. Send a call with ...
+        3. Open ...
+  - type: input
+    id: version
+    attributes:
+      label: Torrix version
+      description: Shown in the account menu and on /health.
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run Torrix?
+      options: ["Docker", "Docker Compose", "Helm", "Single binary", "From source"]
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options: ["SQLite", "Postgres"]
+  - type: dropdown
+    id: integration
+    attributes:
+      label: Integration involved
+      multiple: true
+      options: ["HTTP proxy", "Python SDK", "TypeScript SDK", "Claude Code plugin", "opencode plugin", "OpenTelemetry", "MCP", "Console only", "Other"]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error messages
+      render: text

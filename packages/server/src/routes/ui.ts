@@ -1027,7 +1027,7 @@ ${THEME_BOOT}
       </div>
     </div>
   </header>
-  <main class="content">${config.isDemo ? `<div class="demo-banner">Demo mode · read-only: writes are disabled</div>` : ""}${config.edition === "community" ? `<div class="up-banner">Community edition · Pro adds unlimited runs, online evals, routing and policies; Enterprise adds agent governance, SSO and compliance reporting. Activate a license under <a href="/ui/settings">Settings</a>.</div>` : ""}<div id="update-banner" class="sys-banner" style="display:none"></div>${body}</main>
+  <main class="content">${config.isDemo ? `<div class="demo-banner">Demo mode · read-only: writes are disabled</div>` : ""}${config.edition === "community" ? `<div class="up-banner">Community edition · Pro adds LLM judges, guardrails, routing and policies; Enterprise adds agent governance, SSO and compliance reporting. Licenses live under <a href="/ui/settings">Settings</a>.</div>` : ""}<div id="update-banner" class="sys-banner" style="display:none"></div>${body}</main>
 </div>
 </div>
 <script>function signOut(){localStorage.removeItem("torrix_key");location.href="/ui/logout"}</script>

@@ -87,14 +87,13 @@ export async function authenticateKey(db: DbClient, apiKey: string): Promise<Aut
   return { user, keyRecord: keyRecord as unknown as AuthResult["keyRecord"] };
 }
 
+/** TORRIX_USER_LIMIT can only lower the edition's user limit, never raise it. */
 export function getUserLimit(editionConfig: { userLimit: number | null }, envUserLimit?: string): number | null {
-  if (envUserLimit) {
-    const n = Number(envUserLimit);
-    if (Number.isFinite(n) && n > 0) {
-      return n;
-    }
+  const n = Number(envUserLimit);
+  if (!envUserLimit || !Number.isFinite(n) || n <= 0) {
+    return editionConfig.userLimit;
   }
-  return editionConfig.userLimit;
+  return editionConfig.userLimit === null ? Math.floor(n) : Math.min(editionConfig.userLimit, Math.floor(n));
 }
 
 export function authorizeKeyScope(

@@ -15,3 +15,6 @@ torrix-media/
 bin/
 obj/
 *.user
+# Python packaging output
+*.egg-info/
+packages/sdk-python/build/

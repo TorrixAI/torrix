@@ -7,7 +7,7 @@ and wrapping); `runContext` uses `node:async_hooks` and is Node/Bun only.
 ## Install
 
 ```sh
-npm install @torrix/sdk
+npm install torrix
 # or from this repo: bun run build --cwd packages/sdk-ts
 ```
 
@@ -15,7 +15,7 @@ npm install @torrix/sdk
 
 ```ts
 import OpenAI from "openai";
-import * as torrix from "@torrix/sdk";
+import * as torrix from "torrix";
 
 torrix.init("trxk_...", "http://localhost:8088");
 
@@ -58,7 +58,7 @@ await torrix.runContext({ sessionId: "ses_1", agentName: "planner" }, async () =
 | `health()` / `stats()` | Server reachability / queue counters. |
 | `torrixMiddleware({ client })` | Vercel AI SDK middleware for `wrapLanguageModel`. |
 | `TorrixClient` | Low-level client for custom transports (`background: false` for synchronous ingest). |
-| `createAttestationVerifier(options)` | For MCP servers behind the Torrix gateway: verify `x-torrix-attestation` and reject calls that bypassed Torrix (also at `@torrix/sdk/verify`). See [ENFORCED_ROUTING.md](../../ENFORCED_ROUTING.md). |
+| `createAttestationVerifier(options)` | For MCP servers behind the Torrix gateway: verify `x-torrix-attestation` and reject calls that bypassed Torrix (also at `torrix/verify`). See [ENFORCED_ROUTING.md](../../ENFORCED_ROUTING.md). |
 
 ## Streaming
 
@@ -74,7 +74,7 @@ call; they are stripped before the request leaves the process and applied to the
 
 ```ts
 import { wrapLanguageModel } from "ai";
-import { torrixMiddleware } from "@torrix/sdk";
+import { torrixMiddleware } from "torrix";
 
 const model = wrapLanguageModel({
   model: openai("gpt-4o"),

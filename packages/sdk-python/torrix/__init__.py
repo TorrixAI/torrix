@@ -37,7 +37,7 @@ __all__ = [
     "TorrixClient",
     "TorrixError",
 ]
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 _DEFAULT: Optional[TorrixClient] = None
 

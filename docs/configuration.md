@@ -36,7 +36,8 @@ See [Privacy and security](privacy-and-security.md) for everything Torrix stores
 |---|---|---|
 | `TORRIX_LICENSE_KEY` | none | a Pro or Enterprise license key, applied on first start. You can also paste it under **Settings** |
 | `TORRIX_EDITION` | none | caps the edition, for example `community` to keep a licensed server on community features. It can never unlock a paid edition |
-| `TORRIX_USER_LIMIT` | edition default | overrides the number of user accounts allowed |
+| `TORRIX_USER_LIMIT` | edition default | lowers the number of user accounts allowed. It cannot raise the edition's limit |
+| `TORRIX_RETENTION_DAYS` | keep everything | deletes runs older than this many days, once a day. Golden runs are kept |
 | `TORRIX_DEMO` | `false` | read-only demo mode with sample data (`IS_DEMO` also works) |
 
 ## Notifications

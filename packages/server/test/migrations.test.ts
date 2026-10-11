@@ -64,7 +64,8 @@ test("GET /health responds from the booted app", async () => {
     const body = res.json() as { ok: boolean; name: string; version: string };
     expect(body.ok).toBe(true);
     expect(body.name).toBe("Torrix");
-    expect(body.version).toBe("1.0.0");
+    expect(body.version).toBe(ctx.config.version);
+    expect(body.version).toMatch(/^\d+\.\d+\.\d+$/);
   } finally {
     await ctx.cleanup();
   }

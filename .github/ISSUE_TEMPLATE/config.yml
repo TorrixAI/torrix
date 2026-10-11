@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/TorrixAI/torrix/discussions
+    about: Ask how to set something up, share what you built, or float an idea.
+  - name: Report a security problem
+    url: https://github.com/TorrixAI/torrix/security/advisories/new
+    about: Please report vulnerabilities privately, not as an issue.

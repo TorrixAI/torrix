@@ -25,18 +25,20 @@ export interface EditionConfig {
 }
 
 export const EDITION_CONFIG: Record<Edition, EditionConfig> = {
+  // Community limits apply to people, not data: paid editions sell control, so
+  // volume, retention and search stay unlimited for everyone.
   community: {
-    maxRuns: 10_000,
-    retentionDays: 7,
-    maxGoldenRuns: 50,
-    maxPlaygroundRuns: 50,
-    maxDatasets: 3,
-    maxDatasetRows: 50,
-    fullTextSearch: false,
+    maxRuns: Number.POSITIVE_INFINITY,
+    retentionDays: Number.POSITIVE_INFINITY,
+    maxGoldenRuns: Number.POSITIVE_INFINITY,
+    maxPlaygroundRuns: Number.POSITIVE_INFINITY,
+    maxDatasets: Number.POSITIVE_INFINITY,
+    maxDatasetRows: Number.POSITIVE_INFINITY,
+    fullTextSearch: true,
     onlineEvals: false,
     oidcSso: false,
-    multiUser: false,
-    userLimit: 1,
+    multiUser: true,
+    userLimit: 5,
     agentControl: true,
     maxAgents: 3,
     maxDelegations: 10,
@@ -50,8 +52,8 @@ export const EDITION_CONFIG: Record<Edition, EditionConfig> = {
   },
   pro: {
     maxRuns: Number.POSITIVE_INFINITY,
-    retentionDays: 30,
-    maxGoldenRuns: 100,
+    retentionDays: Number.POSITIVE_INFINITY,
+    maxGoldenRuns: Number.POSITIVE_INFINITY,
     maxPlaygroundRuns: Number.POSITIVE_INFINITY,
     maxDatasets: Number.POSITIVE_INFINITY,
     maxDatasetRows: Number.POSITIVE_INFINITY,
@@ -73,7 +75,7 @@ export const EDITION_CONFIG: Record<Edition, EditionConfig> = {
   },
   enterprise: {
     maxRuns: Number.POSITIVE_INFINITY,
-    retentionDays: 90,
+    retentionDays: Number.POSITIVE_INFINITY,
     maxGoldenRuns: Number.POSITIVE_INFINITY,
     maxPlaygroundRuns: Number.POSITIVE_INFINITY,
     maxDatasets: Number.POSITIVE_INFINITY,
@@ -140,12 +142,19 @@ export class LicenseState {
   private grant: EditionGrant | null = null;
   private grantExpiresMs = Number.POSITIVE_INFINITY;
   private readonly userLimitOverride: number | null;
+  private readonly retentionDaysOverride: number | null;
   private readonly configs = new Map<Edition, EditionConfig>();
 
-  constructor(options: { ceiling: Edition | null; trustedKeys: readonly TrustedKey[]; userLimitOverride: number | null }) {
+  constructor(options: {
+    ceiling: Edition | null;
+    trustedKeys: readonly TrustedKey[];
+    userLimitOverride: number | null;
+    retentionDaysOverride?: number | null;
+  }) {
     this.ceiling = options.ceiling;
     this.trustedKeys = options.trustedKeys;
     this.userLimitOverride = options.userLimitOverride;
+    this.retentionDaysOverride = options.retentionDaysOverride ?? null;
   }
 
   edition(): Edition {
@@ -158,8 +167,11 @@ export class LicenseState {
     let cfg = this.configs.get(edition);
     if (!cfg) {
       cfg = { ...EDITION_CONFIG[edition] };
-      if (this.userLimitOverride !== null) {
+      if (this.userLimitOverride !== null && (cfg.userLimit === null || this.userLimitOverride < cfg.userLimit)) {
         cfg.userLimit = this.userLimitOverride;
+      }
+      if (this.retentionDaysOverride !== null) {
+        cfg.retentionDays = this.retentionDaysOverride;
       }
       this.configs.set(edition, cfg);
     }

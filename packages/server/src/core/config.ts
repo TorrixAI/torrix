@@ -31,10 +31,12 @@ export interface ConfigOptions {
 export function loadConfig(env: NodeJS.ProcessEnv, options: ConfigOptions = {}): ServerConfig {
   const dbPath = env.DB_PATH ?? "torrix.sqlite";
   const userLimitOverride = Number(env.TORRIX_USER_LIMIT);
+  const retentionDays = Number(env.TORRIX_RETENTION_DAYS);
   const license = new LicenseState({
     ceiling: parseEdition(env.TORRIX_EDITION),
     trustedKeys: options.trustedKeys ?? TRUSTED_LICENSE_KEYS,
     userLimitOverride: Number.isFinite(userLimitOverride) && userLimitOverride > 0 ? Math.floor(userLimitOverride) : null,
+    retentionDaysOverride: Number.isFinite(retentionDays) && retentionDays > 0 ? Math.floor(retentionDays) : null,
   });
   return {
     get edition() {
@@ -55,7 +57,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, options: ConfigOptions = {}):
     mediaDir: env.TORRIX_MEDIA_DIR ?? path.join(path.dirname(path.resolve(dbPath)), "torrix-media"),
     updateRepo: env.TORRIX_UPDATE_REPO ?? null,
     attestationIssuer: env.TORRIX_ATTESTATION_ISSUER?.trim() || "torrix",
-    version: "1.0.0",
+    version: "1.1.0",
   };
 }
 

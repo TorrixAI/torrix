@@ -1,13 +1,20 @@
 # Torrix
 
+[![Release](https://img.shields.io/github/v/release/TorrixAI/torrix?label=release)](https://github.com/TorrixAI/torrix/releases)
+[![Docker pulls](https://img.shields.io/docker/pulls/gettorrixai/torrix)](https://hub.docker.com/r/gettorrixai/torrix)
+[![PyPI](https://img.shields.io/pypi/v/torrix-sdk?label=pypi)](https://pypi.org/project/torrix-sdk/)
+[![npm](https://img.shields.io/npm/v/torrix?label=npm)](https://www.npmjs.com/package/torrix)
+[![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue)](LICENSE)
+
 **The system of record for your AI agents: what they did, what it cost, and what they were allowed to do.**
 
 Torrix sits between your agents and your LLM providers and tools. Every model call, tool call and
 MCP call is recorded with its prompt, response, tokens, cost and latency, and linked into the agent
 run it belongs to. You run it yourself, so your data never leaves your infrastructure.
 
-This repository is the free **Community edition**: full observability and cost control for agents.
-The paid editions add the other half, deciding what agents may do before they do it.
+This repository is the free **Community edition**: full observability and cost control for agents,
+with no limit on runs, no data deletion and up to 5 users. The paid editions add the other half,
+deciding what agents may do before they do it.
 
 ![Torrix dashboard](docs/images/dashboard.png)
 
@@ -50,22 +57,20 @@ The paid editions run on your servers too and keep your Community data when you 
 
 ## Quick start
 
-You need [Bun](https://bun.sh) 1.2 or newer, or Docker.
+```bash
+docker run -d --name torrix -p 8088:8088 -v torrix_data:/data gettorrixai/torrix:latest
+```
+
+Open http://localhost:8088, create your account, and go to **Integrations** to connect your first
+app. Every integration card generates its own API key and gives you a command to copy.
+
+Prefer to run from source? You need [Bun](https://bun.sh) 1.2 or newer:
 
 ```bash
 git clone https://github.com/TorrixAI/torrix.git
 cd torrix
 bun install
 bun run start
-```
-
-Open http://localhost:8088, create your account, and go to **Integrations** to connect your first
-app. Every integration card generates its own API key and gives you a command to copy.
-
-Prefer Docker?
-
-```bash
-docker run -d --name torrix -p 8088:8088 -v torrix_data:/data gettorrixai/torrix:latest
 ```
 
 ## Send your first call
@@ -94,6 +99,7 @@ The call goes to OpenAI as usual, and shows up in Torrix under **Runs** a moment
 | [Configuration](docs/configuration.md) | Every environment variable |
 | [Privacy and security](docs/privacy-and-security.md) | What is stored, what leaves your server, PII masking |
 | [Editions and licensing](docs/editions-and-licensing.md) | Community, Pro and Enterprise, and what the license allows |
+| [How Torrix compares](docs/comparison.md) | Torrix next to Langfuse, Helicone and LangSmith, and how to switch |
 | [FAQ](docs/faq.md) | Common questions |
 
 ## Contributing

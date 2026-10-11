@@ -101,13 +101,15 @@ function cards(base: string, source: string): Card[] {
       keyName: "SDK",
       steps: [
         { text: "Generate a key for your application." },
+        { text: "Python: install the SDK.", code: "pip install torrix-sdk" },
         {
-          text: "Python (install with pip install -e packages/sdk-python from the Torrix repo):",
+          text: "Then add two lines where your app starts:",
           code: `import torrix\n\ntorrix.init(api_key="${KEY}", base_url="${base}")\ntorrix.wrap()  # patches OpenAI and Anthropic clients`,
         },
+        { text: "TypeScript or JavaScript: install the SDK.", code: "npm install torrix" },
         {
-          text: "TypeScript (build packages/sdk-ts from the Torrix repo):",
-          code: `import * as torrix from "@torrix/sdk";\n\ntorrix.init("${KEY}", "${base}");\ntorrix.wrap(client);`,
+          text: "Then wrap your client:",
+          code: `import * as torrix from "torrix";\n\ntorrix.init("${KEY}", "${base}");\ntorrix.wrap(client);`,
         },
       ],
     },

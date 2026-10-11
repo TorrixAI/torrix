@@ -58,8 +58,8 @@ The request your app sends to the provider is not changed.
 
 ## Retention
 
-The Community edition keeps runs for 7 days. Paid editions keep them longer. See
-[Editions and licensing](editions-and-licensing.md).
+Torrix keeps every run until you delete it, in every edition. To remove old runs automatically,
+set `TORRIX_RETENTION_DAYS`, for example `30`. Golden runs are never removed by this cleanup.
 
 ## Reporting a vulnerability
 

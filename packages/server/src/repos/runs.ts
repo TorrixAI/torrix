@@ -103,13 +103,6 @@ export function createRunRepository(db: DbClient): RunRepository {
       return Number(row?.c ?? 0);
     },
 
-    async wipe(userId: string): Promise<number> {
-      const row = await sqlGet<{ c: number }>(db.engine, "SELECT COUNT(*) AS c FROM runs WHERE user_id = ?", [userId]);
-      await sqlRun(db.engine, "DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE user_id = ?)", [userId]);
-      await sqlRun(db.engine, "DELETE FROM runs WHERE user_id = ?", [userId]);
-      return Number(row?.c ?? 0);
-    },
-
     async dashboardStats(userId: string, filters: DashboardFilters): Promise<DashboardStats> {
       const where = buildWhere(userId, filters);
 

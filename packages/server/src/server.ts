@@ -83,9 +83,13 @@ function openBrowser(url: string): void {
 function startPeriodicTasks(config: ServerConfig, client: DbClient, repos: Repositories, env: NodeJS.ProcessEnv): void {
   setInterval(async () => {
     try {
+      const days = config.editionConfig.retentionDays;
+      if (!Number.isFinite(days)) {
+        return;
+      }
       const all = await sqlAll<{ id: string }>(client.engine, "SELECT id FROM users");
       for (const u of all) {
-        await repos.runs.deleteOld(u.id, config.editionConfig.retentionDays);
+        await repos.runs.deleteOld(u.id, days);
       }
     } catch (err) {
       console.error("retention cleanup failed", err);
@@ -124,34 +128,6 @@ function startPeriodicTasks(config: ServerConfig, client: DbClient, repos: Repos
     setTimeout(() => void checkForUpdate(repos, updateRepo), 5_000);
     setInterval(() => void checkForUpdate(repos, updateRepo), 24 * 60 * 60 * 1000);
   }
-
-  const runWipe = async () => {
-    if (config.edition !== "community") {
-      return;
-    }
-    try {
-      const next = await repos.instance.get("next_wipe_at");
-      const nextMs = next ? Date.parse(next) : Number.NaN;
-      if (!Number.isFinite(nextMs)) {
-        await repos.instance.set("next_wipe_at", new Date(Date.now() + 7 * 86_400_000).toISOString());
-        return;
-      }
-      if (nextMs > Date.now()) {
-        return;
-      }
-      const all = await sqlAll<{ id: string }>(client.engine, "SELECT id FROM users");
-      let wiped = 0;
-      for (const u of all) {
-        wiped += await repos.runs.wipe(u.id);
-      }
-      await repos.instance.set("next_wipe_at", new Date(Date.now() + 7 * 86_400_000).toISOString());
-      console.log(`community weekly wipe: removed ${wiped} run(s)`);
-    } catch (err) {
-      console.error("community weekly wipe failed", err);
-    }
-  };
-  setTimeout(runWipe, 5_000);
-  setInterval(runWipe, 60 * 60 * 1000);
 
   if (config.telemetry) {
     setTimeout(() => void pingTelemetry(repos), 1000);

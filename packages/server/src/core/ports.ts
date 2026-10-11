@@ -104,7 +104,6 @@ export interface RunRepository {
   countBySource(userId: string, source: string): Promise<number>;
   countGolden(userId: string): Promise<number>;
   deleteOld(userId: string, olderThanDays: number): Promise<number>;
-  wipe(userId: string): Promise<number>;
   dashboardStats(userId: string, filters: DashboardFilters): Promise<DashboardStats>;
   list(userId: string, opts: ListOptions): Promise<{ runs: Run[]; total: number }>;
   listSummary(userId: string, opts: RunListFilters): Promise<RunListSummary>;

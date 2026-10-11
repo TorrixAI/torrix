@@ -1,0 +1,80 @@
+name: Release SDKs
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # Only the public Community repository publishes packages.
+    if: github.repository == 'TorrixAI/torrix'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Check the tag matches both SDK versions
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          ts=$(node -p "require('./packages/sdk-ts/package.json').version")
+          py=$(grep -oE '^version = "[^"]+"' packages/sdk-python/pyproject.toml | cut -d'"' -f2)
+          if [ "$ts" != "$version" ] || [ "$py" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME, TypeScript SDK $ts, Python SDK $py. Run bun scripts/set-version.ts $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  npm:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: bun install
+      - run: bun run test:sdk
+      - name: Publish torrix to npm
+        working-directory: packages/sdk-ts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if npm view "torrix@${{ needs.check.outputs.version }}" version >/dev/null 2>&1; then
+            echo "torrix@${{ needs.check.outputs.version }} is already on npm"
+            exit 0
+          fi
+          npm publish --provenance --access public
+
+  pypi:
+    needs: check
+    runs-on: ubuntu-latest
+    # PyPI trusted publishing: no token, PyPI trusts this workflow and environment.
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test and build
+        working-directory: packages/sdk-python
+        run: |
+          python -m unittest discover -s tests -t .
+          python -m pip install --upgrade build
+          python -m build
+      - name: Publish torrix to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/sdk-python/dist
+          skip-existing: true

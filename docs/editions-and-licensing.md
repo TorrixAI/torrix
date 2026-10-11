@@ -26,12 +26,13 @@ runs, settings, users and API keys.
 
 | | Community | Pro | Enterprise |
 |---|---|---|---|
-| User accounts | 1 | unlimited | unlimited |
-| Stored runs | 10,000 | unlimited | unlimited |
-| Run retention | 7 days | 30 days | 90 days |
-| Datasets | 3, up to 50 rows each | unlimited | unlimited |
+| User accounts | 5 | unlimited | unlimited |
+| Stored runs | unlimited | unlimited | unlimited |
+| Run retention | kept until you delete them | same | same |
+| Datasets, playground, search | unlimited | unlimited | unlimited |
 
-The Community edition also clears stored runs once a week.
+Torrix never deletes your data on its own in any edition. If you want old runs cleaned up, set
+`TORRIX_RETENTION_DAYS`. Golden runs are always kept.
 
 Paid features you do not have yet appear in the console with a small **Pro** or **Ent** badge and
 a short description, so you can see what an upgrade adds.
@@ -47,7 +48,7 @@ The Community image does not contain the paid features, so an upgrade has two pa
 2. **Add the license key.** Paste it under **Settings > License**, or start Torrix with
    `TORRIX_LICENSE_KEY=<your key>`. The features of your edition turn on right away.
 
-If you add a license to the Community image, the higher limits for users, runs and retention apply,
+If you add a license to the Community image, the higher user limit applies,
 and the paid features show a note that they need the paid image.
 
 When a license expires, Torrix returns to the Community edition and your data stays where it is.

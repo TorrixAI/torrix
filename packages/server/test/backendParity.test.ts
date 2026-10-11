@@ -116,7 +116,7 @@ test("sampled-out streaming successes are dropped but streaming errors are alway
   }
 });
 
-test("community playground cap blocks further playground runs", async () => {
+test("community has no playground run cap", async () => {
   const upstream = Bun.serve({ port: 0, async fetch() { return Response.json({ ok: true }); } });
   const ctx = await createTestApp({ TORRIX_LOCAL_HOST: `127.0.0.1:${upstream.port}` });
   try {
@@ -144,15 +144,14 @@ test("community playground cap blocks further playground runs", async () => {
       },
       payload: { model: "gpt-4o", messages: [{ role: "user", content: "hi" }] },
     });
-    expect(res.statusCode).toBe(429);
-    expect((res.json() as { error: string }).error).toBe("playground_limit_reached");
+    expect(res.statusCode).toBe(200);
   } finally {
     upstream.stop(true);
     await ctx.cleanup();
   }
 });
 
-test("community golden cap blocks marking more golden runs", async () => {
+test("community has no golden run cap", async () => {
   const ctx = await createTestApp();
   try {
     const signup = await ctx.app.inject({
@@ -175,8 +174,7 @@ test("community golden cap blocks marking more golden runs", async () => {
       headers: bearer(key),
       payload: { is_golden: true },
     });
-    expect(res.statusCode).toBe(400);
-    expect((res.json() as { error: string }).error).toBe("golden_limit_reached");
+    expect(res.statusCode).toBe(200);
   } finally {
     await ctx.cleanup();
   }

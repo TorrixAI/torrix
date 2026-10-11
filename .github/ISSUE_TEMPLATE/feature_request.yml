@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an idea or an integration
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem or the situation, in your own words. This helps more than a solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: How you imagine it working in Torrix.
+  - type: textarea
+    id: today
+    attributes:
+      label: How do you handle it today?
