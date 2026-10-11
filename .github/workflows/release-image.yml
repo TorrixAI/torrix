@@ -74,7 +74,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Needs a Docker Hub token with Read, Write, Delete scope; the images are already pushed.
       - name: Update the Docker Hub description
+        continue-on-error: true
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
