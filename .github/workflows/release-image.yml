@@ -62,7 +62,7 @@ jobs:
             org.opencontainers.image.title=Torrix
             org.opencontainers.image.description=Self-hosted LLM observability: traces, cost, evals and a proxy for any provider
             org.opencontainers.image.licenses=FSL-1.1-ALv2
-            org.opencontainers.image.url=https://torrix.ai
+            org.opencontainers.image.url=https://github.com/TorrixAI/torrix
 
       - uses: docker/build-push-action@v6
         with:

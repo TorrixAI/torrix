@@ -5,7 +5,7 @@ type: application
 version: 1.2.1
 appVersion: "1.2.1"
 kubeVersion: ">=1.24.0-0"
-home: https://torrix.ai
+home: https://github.com/TorrixAI/torrix
 sources:
   - https://github.com/TorrixAI/torrix
 keywords:

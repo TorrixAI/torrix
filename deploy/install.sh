@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Torrix installer: downloads the latest compiled binary and, when possible,
 # registers a system service. Mirrors the install command shown in the UI:
-#   curl -fsSL https://torrix.ai/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/TorrixAI/torrix/main/deploy/install.sh | sh
 set -eu
 
 REPO="${TORRIX_REPO:-TorrixAI/torrix}"

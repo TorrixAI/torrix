@@ -1,7 +1,7 @@
 import type { Repositories } from "../repos";
 
 export function updateCommand(docker: boolean): string {
-  return docker ? "docker compose pull && docker compose up -d" : "curl -fsSL https://torrix.ai/install.sh | sh";
+  return docker ? "docker compose pull && docker compose up -d" : "curl -fsSL https://raw.githubusercontent.com/TorrixAI/torrix/main/deploy/install.sh | sh";
 }
 
 /**
