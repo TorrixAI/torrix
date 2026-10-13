@@ -107,6 +107,7 @@ The call goes to OpenAI as usual, and shows up in Torrix under **Runs** a moment
 | [Pro and Enterprise features](docs/pro-and-enterprise.md) | The judge, routing, policies, the agent control plane and SSO |
 | [How Torrix compares](docs/comparison.md) | Torrix next to Langfuse, Helicone and LangSmith, and how to switch |
 | [FAQ](docs/faq.md) | Common questions |
+| [Changelog](CHANGELOG.md) | What changed in each release and what to do when upgrading |
 
 ## Contributing
 

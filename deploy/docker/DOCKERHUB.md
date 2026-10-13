@@ -41,9 +41,11 @@ volumes:
 | `PORT` | `8088` | port the server listens on |
 | `DB_PATH` | `/data/torrix.sqlite` | SQLite file location |
 | `TORRIX_DATABASE_URL` | none | Postgres connection URL, used instead of SQLite when set |
-| `TORRIX_SECRET_KEY` | none | encrypts saved credentials. Set it in production and keep it safe |
+| `TORRIX_SECRET_KEY` | created for you | encrypts saved credentials. Torrix creates a key file (`torrix.secret.key`) in `/data` on first start, so back it up with your data. With Postgres, set this yourself |
 | `TORRIX_PRICING_SYNC` | `true` | set to `false` to stop the daily download of public model prices |
-| `TORRIX_LOCAL_HOST` | none | lets the proxy reach a model server on your network, for example `host.docker.internal:11434` for Ollama |
+| `TORRIX_LOCAL_HOST` | none | lets Torrix reach a server on your network, for example `host.docker.internal:11434` for Ollama |
+| `TORRIX_ALLOW_PRIVATE_HOSTS` | `false` | lets Torrix call any private address, such as MCP servers and systems inside your network. Cloud metadata addresses are never reachable |
+| `TORRIX_ALLOW_SIGNUP` | `false` | the first account is the administrator, then an administrator adds people. Set to `true` for open sign-up |
 | `TORRIX_LICENSE_KEY` | none | a Pro or Enterprise license key |
 
 Telemetry is off in this image. Data lives in `/data`, so keep that volume when you upgrade.

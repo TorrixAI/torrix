@@ -16,6 +16,10 @@ services:
       TORRIX_TELEMETRY: "false"
       TORRIX_OPEN_BROWSER: "false"
       # TORRIX_DATABASE_URL: postgres://torrix:torrix@db:5432/torrix
+      # The first sign-up is the administrator; add people on the Team page.
+      # TORRIX_ALLOW_SIGNUP: "true"             # let anyone who can reach the console sign up
+      # TORRIX_LOCAL_HOST: "mcp.internal:3000"  # reach a server on your network
+      # TORRIX_SECRET_KEY: <long random string> # needed with Postgres; SQLite creates a key file
     volumes:
       - torrix_data:/data
     healthcheck:

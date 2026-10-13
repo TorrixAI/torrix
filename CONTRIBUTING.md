@@ -59,6 +59,11 @@ bun run test:py      # Python SDK
 - Every change that alters behavior comes with a test.
 - Database changes need a migration for both SQLite (`drizzle/`) and Postgres (`drizzle-pg/`).
 - User-facing text is short and plain.
+- A request to an address a user or a remote system supplied goes through `guardedFetch`
+  (`packages/server/src/lib/outbound.ts`), never a bare `fetch`, and what the remote system answers
+  never goes into an error message or an API response.
+- New settings must be safe by default: do not add a feature whose safe behavior needs an
+  environment variable.
 
 ## License of contributions
 

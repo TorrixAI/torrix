@@ -15,6 +15,12 @@ data:
   {{- if .Values.config.localHost }}
   TORRIX_LOCAL_HOST: {{ .Values.config.localHost | quote }}
   {{- end }}
+  {{- if .Values.config.allowSignup }}
+  TORRIX_ALLOW_SIGNUP: "true"
+  {{- end }}
+  {{- if .Values.config.allowPrivateHosts }}
+  TORRIX_ALLOW_PRIVATE_HOSTS: "true"
+  {{- end }}
   {{- if .Values.config.retentionDays }}
   TORRIX_RETENTION_DAYS: {{ .Values.config.retentionDays | quote }}
   {{- end }}

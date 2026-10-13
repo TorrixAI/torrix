@@ -79,8 +79,16 @@ config:
   # value can lower the edition but never raise it. Leave empty for no cap.
   edition: ""
   telemetry: false
+  # Servers on your network that Torrix may call (MCP servers, business systems), comma separated,
+  # for example "mcp.internal:3000". Private addresses are refused by default.
   localHost: ""
+  # Allow every private address instead of listing hosts. Cloud metadata stays blocked.
+  allowPrivateHosts: false
+  # After the first account only an administrator adds people. true lets anyone sign up.
+  allowSignup: false
   retentionDays: ""
+  # With Postgres, set TORRIX_SECRET_KEY (use `env` or `existingSecret`) so saved credentials are
+  # encrypted. With the SQLite volume, Torrix creates a key file in the volume itself.
 
 livenessProbe:
   enabled: true
