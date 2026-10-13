@@ -6,6 +6,7 @@ export interface LicensePayload {
   kid?: string;
   licensee?: string;
   expires_at?: string;
+  limits?: Record<string, unknown>;
 }
 
 export interface LicenseVerification {
@@ -95,12 +96,26 @@ export async function verifyLicense(key: string, trustedKeys: readonly TrustedKe
   }
 }
 
+function limitsFromPayload(raw: LicensePayload["limits"]): Record<string, number> | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const limits: Record<string, number> = {};
+  for (const [name, value] of Object.entries(raw)) {
+    if (/^[a-z][a-z0-9_]{0,40}$/.test(name) && typeof value === "number" && Number.isInteger(value) && value >= 0) {
+      limits[name] = value;
+    }
+  }
+  return Object.keys(limits).length ? limits : undefined;
+}
+
 export function grantFromLicense(license: LicenseState, payload: LicensePayload): void {
   license.apply({
     edition: payload.edition === "pro" ? "pro" : "enterprise",
     licensee: payload.licensee ?? null,
     expiresAt: payload.expires_at ?? null,
     source: "license",
+    limits: limitsFromPayload(payload.limits),
   });
 }
 

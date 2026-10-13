@@ -39,7 +39,9 @@ deciding what agents may do before they do it.
 
 ## From observing agents to governing them
 
-Seeing what an agent did is the first step. Most teams soon need to control it too.
+Seeing what an agent did is the first step. Most teams soon need to control it too. Governance
+works with agents from any platform: anything that can call a remote MCP server, or make an HTTP
+check before it acts.
 
 | | Community (free) | Pro | Enterprise |
 |---|---|---|---|
@@ -47,9 +49,11 @@ Seeing what an agent did is the first step. Most teams soon need to control it t
 | LLM judge, online evaluations and guardrails built from your evaluations | | ✓ | ✓ |
 | Model routing, fallbacks and small-model savings | | ✓ | ✓ |
 | Policy engine and human review queue | | ✓ | ✓ |
-| Agent identities and delegated authority: which agent may do what, on whose behalf | | | ✓ |
-| Governed MCP gateway: tool calls are checked and denied or held for approval before they run | | | ✓ |
-| Approvals, audit trail, EU AI Act reports, single sign-on | | | ✓ |
+| Agent identities, signed grants and delegated authority: which agent may do what, on whose behalf | | ✓ (10 agents) | ✓ (unlimited) |
+| Policy, risk scoring and single-use approvals for agent actions, with an audit trail | | ✓ | ✓ |
+| Governed MCP gateway: tool calls are checked and denied or held for approval before they run | | ✓ | ✓ |
+| Agent-to-agent delegation, signed calls to downstream servers, permission graph | | | ✓ |
+| Single sign-on, Entra ID, Okta and SCIM directory sync, EU AI Act reports, audit export | | | ✓ |
 
 The paid editions run on your servers too and keep your Community data when you upgrade. See
 [Editions and licensing](docs/editions-and-licensing.md), or
@@ -93,12 +97,14 @@ The call goes to OpenAI as usual, and shows up in Torrix under **Runs** a moment
 | Topic | |
 |---|---|
 | [Getting started](docs/getting-started.md) | Install, create an account, log your first call |
+| [Using the console](docs/console.md) | Every screen, the project scope and the trace views |
 | [How Torrix organizes your data](docs/concepts.md) | Runs, traces, sessions, agents and projects |
 | [Integrations](docs/integrations/README.md) | Proxy, SDKs, Claude Code, opencode, OpenTelemetry, MCP |
 | [Self-hosting](docs/self-hosting.md) | Docker, Helm, binary, Postgres, backups and upgrades |
 | [Configuration](docs/configuration.md) | Every environment variable |
 | [Privacy and security](docs/privacy-and-security.md) | What is stored, what leaves your server, PII masking |
 | [Editions and licensing](docs/editions-and-licensing.md) | Community, Pro and Enterprise, and what the license allows |
+| [Pro and Enterprise features](docs/pro-and-enterprise.md) | The judge, routing, policies, the agent control plane and SSO |
 | [How Torrix compares](docs/comparison.md) | Torrix next to Langfuse, Helicone and LangSmith, and how to switch |
 | [FAQ](docs/faq.md) | Common questions |
 

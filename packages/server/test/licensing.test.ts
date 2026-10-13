@@ -9,7 +9,7 @@ test("TORRIX_EDITION alone never unlocks a paid edition", () => {
   for (const value of ["pro", "enterprise", "cloud", "PRO"]) {
     expect(loadConfig({ TORRIX_EDITION: value } as NodeJS.ProcessEnv).edition).toBe("community");
   }
-  expect(loadConfig({} as NodeJS.ProcessEnv).editionConfig.onlineEvals).toBe(false);
+  expect(loadConfig({} as NodeJS.ProcessEnv).editionConfig.userLimit).toBe(5);
 });
 
 test("TORRIX_EDITION caps a licensed edition but cannot raise it", async () => {
@@ -25,7 +25,7 @@ test("TORRIX_EDITION caps a licensed edition but cannot raise it", async () => {
   const uncapped = loadConfig({} as NodeJS.ProcessEnv, { trustedKeys: [signer.trusted] });
   grantFromLicense(uncapped.license, verified.payload!);
   expect(uncapped.edition).toBe("enterprise");
-  expect(uncapped.editionConfig.oidcSso).toBe(true);
+  expect(uncapped.editionConfig.userLimit).toBeNull();
 });
 
 test("a legacy cloud license is honored as enterprise", async () => {
@@ -123,4 +123,20 @@ test("TORRIX_USER_LIMIT can lower the user limit but never raise it", () => {
   expect(licensed.editionConfig.userLimit).toBe(20);
   expect(getUserLimit({ userLimit: 5 }, "1000")).toBe(5);
   expect(getUserLimit({ userLimit: null }, "7")).toBe(7);
+});
+
+test("a license can carry numeric limits and malformed entries are ignored", () => {
+  const config = loadConfig({});
+  grantFromLicense(config.license, {
+    edition: "pro",
+    limits: { max_agents: 3, bad_negative: -1, Weird: 5, fraction: 1.5, text: "x" as unknown as number },
+  });
+  expect(config.license.edition()).toBe("pro");
+  expect(config.license.limit("max_agents")).toBe(3);
+  expect(config.license.limit("bad_negative")).toBeUndefined();
+  expect(config.license.limit("Weird")).toBeUndefined();
+  expect(config.license.limit("fraction")).toBeUndefined();
+  expect(config.license.limit("text")).toBeUndefined();
+  config.license.clear();
+  expect(config.license.limit("max_agents")).toBeUndefined();
 });

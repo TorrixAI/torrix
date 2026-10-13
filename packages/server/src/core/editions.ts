@@ -8,20 +8,8 @@ export interface EditionConfig {
   maxDatasets: number;
   maxDatasetRows: number;
   fullTextSearch: boolean;
-  onlineEvals: boolean;
-  oidcSso: boolean;
   multiUser: boolean;
   userLimit: number | null;
-  agentControl: boolean;
-  maxAgents: number;
-  maxDelegations: number;
-  maxAuthzPolicies: number;
-  maxMcpServers: number;
-  approvals: boolean;
-  agentGraph: boolean;
-  a2a: boolean;
-  identityFederation: boolean;
-  authorizationRetentionDays: number;
 }
 
 export const EDITION_CONFIG: Record<Edition, EditionConfig> = {
@@ -35,20 +23,8 @@ export const EDITION_CONFIG: Record<Edition, EditionConfig> = {
     maxDatasets: Number.POSITIVE_INFINITY,
     maxDatasetRows: Number.POSITIVE_INFINITY,
     fullTextSearch: true,
-    onlineEvals: false,
-    oidcSso: false,
     multiUser: true,
     userLimit: 5,
-    agentControl: true,
-    maxAgents: 3,
-    maxDelegations: 10,
-    maxAuthzPolicies: 10,
-    maxMcpServers: 3,
-    approvals: true,
-    agentGraph: false,
-    a2a: false,
-    identityFederation: false,
-    authorizationRetentionDays: 7,
   },
   pro: {
     maxRuns: Number.POSITIVE_INFINITY,
@@ -58,20 +34,8 @@ export const EDITION_CONFIG: Record<Edition, EditionConfig> = {
     maxDatasets: Number.POSITIVE_INFINITY,
     maxDatasetRows: Number.POSITIVE_INFINITY,
     fullTextSearch: true,
-    onlineEvals: true,
-    oidcSso: false,
     multiUser: true,
     userLimit: null,
-    agentControl: true,
-    maxAgents: Number.POSITIVE_INFINITY,
-    maxDelegations: Number.POSITIVE_INFINITY,
-    maxAuthzPolicies: Number.POSITIVE_INFINITY,
-    maxMcpServers: Number.POSITIVE_INFINITY,
-    approvals: true,
-    agentGraph: true,
-    a2a: true,
-    identityFederation: false,
-    authorizationRetentionDays: 30,
   },
   enterprise: {
     maxRuns: Number.POSITIVE_INFINITY,
@@ -81,20 +45,8 @@ export const EDITION_CONFIG: Record<Edition, EditionConfig> = {
     maxDatasets: Number.POSITIVE_INFINITY,
     maxDatasetRows: Number.POSITIVE_INFINITY,
     fullTextSearch: true,
-    onlineEvals: true,
-    oidcSso: true,
     multiUser: true,
     userLimit: null,
-    agentControl: true,
-    maxAgents: Number.POSITIVE_INFINITY,
-    maxDelegations: Number.POSITIVE_INFINITY,
-    maxAuthzPolicies: Number.POSITIVE_INFINITY,
-    maxMcpServers: Number.POSITIVE_INFINITY,
-    approvals: true,
-    agentGraph: true,
-    a2a: true,
-    identityFederation: true,
-    authorizationRetentionDays: 90,
   },
 };
 
@@ -128,6 +80,8 @@ export interface EditionGrant {
   licensee: string | null;
   expiresAt: string | null;
   source: GrantSource;
+  /** Per-license numeric limits signed into the key, for example `max_agents` for a trial. */
+  limits?: Readonly<Record<string, number>>;
 }
 
 /**
@@ -188,6 +142,12 @@ export class LicenseState {
       this.grantExpiresMs = Number.POSITIVE_INFINITY;
     }
     return this.grant;
+  }
+
+  /** A limit signed into the active license, or undefined when the license carries none. */
+  limit(name: string): number | undefined {
+    const value = this.activeGrant()?.limits?.[name];
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
   }
 
   apply(grant: EditionGrant): void {

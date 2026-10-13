@@ -1,11 +1,13 @@
 import type { DbClient } from "../db/client";
 import { insertRow, sqlAll, sqlGet, sqlRun, updateById } from "../db/sql";
-import type { ApprovalQuery, AuthorizationQuery, AuthorizationRepository } from "../core/ports";
+import type { ApprovalQuery, AuthorizationJoin, AuthorizationQuery, AuthorizationRepository } from "../core/ports";
 import type {
   AgentControlSettings,
   Approval,
   AuthorizationDecisionRecord,
   AuthorizationRequest,
+  Delegation,
+  Principal,
   RiskAssessmentRecord,
 } from "../core/domain";
 
@@ -38,6 +40,53 @@ export function createAuthorizationRepository(db: DbClient): AuthorizationReposi
   const asDecision = (row: Record<string, unknown>): AuthorizationDecisionRecord =>
     row as unknown as AuthorizationDecisionRecord;
   const asApproval = (row: Record<string, unknown>): Approval => row as unknown as Approval;
+  const asRisk = (row: Record<string, unknown>): RiskAssessmentRecord => row as unknown as RiskAssessmentRecord;
+  const asPrincipal = (row: Record<string, unknown>): Principal => row as unknown as Principal;
+  const asDelegation = (row: Record<string, unknown>): Delegation => row as unknown as Delegation;
+
+  const joinRequests = async (requests: AuthorizationRequest[]): Promise<AuthorizationJoin[]> => {
+    const out: AuthorizationJoin[] = [];
+    for (const request of requests) {
+      const decisionRow = await sqlGet<Record<string, unknown>>(
+        db.engine,
+        "SELECT * FROM authorization_decisions WHERE request_id = ? ORDER BY created_at DESC LIMIT 1",
+        [request.id],
+      );
+      const riskRow = await sqlGet<Record<string, unknown>>(
+        db.engine,
+        "SELECT * FROM risk_assessments WHERE request_id = ? ORDER BY created_at DESC LIMIT 1",
+        [request.id],
+      );
+      const approvalRow = await sqlGet<Record<string, unknown>>(
+        db.engine,
+        "SELECT * FROM approvals WHERE request_id = ? ORDER BY created_at DESC LIMIT 1",
+        [request.id],
+      );
+      const principalRow = request.principal_id
+        ? await sqlGet<Record<string, unknown>>(
+            db.engine,
+            "SELECT * FROM principals WHERE id = ? AND user_id = ?",
+            [request.principal_id, request.user_id],
+          )
+        : null;
+      const delegationRow = request.delegation_id
+        ? await sqlGet<Record<string, unknown>>(
+            db.engine,
+            "SELECT * FROM delegations WHERE id = ? AND user_id = ?",
+            [request.delegation_id, request.user_id],
+          )
+        : null;
+      out.push({
+        request,
+        decision: decisionRow ? asDecision(decisionRow) : null,
+        risk: riskRow ? asRisk(riskRow) : null,
+        approval: approvalRow ? asApproval(approvalRow) : null,
+        principal: principalRow ? asPrincipal(principalRow) : null,
+        delegation: delegationRow ? asDelegation(delegationRow) : null,
+      });
+    }
+    return out;
+  };
 
   return {
     async getSettings(userId: string): Promise<AgentControlSettings> {
@@ -150,6 +199,46 @@ export function createAuthorizationRepository(db: DbClient): AuthorizationReposi
       return row ? asDecision(row) : null;
     },
 
+    async listByTrace(userId: string, traceId: string): Promise<AuthorizationJoin[]> {
+      const rows = await sqlAll<Record<string, unknown>>(
+        db.engine,
+        "SELECT * FROM authorization_requests WHERE user_id = ? AND trace_id = ? ORDER BY created_at ASC",
+        [userId, traceId],
+      );
+      return joinRequests(rows.map(asRequest));
+    },
+
+    async listByRuns(userId: string, runIds: string[]): Promise<AuthorizationJoin[]> {
+      const ids = [...new Set(runIds.filter((id) => typeof id === "string" && id.length > 0))];
+      if (ids.length === 0) {
+        return [];
+      }
+      const placeholders = ids.map(() => "?").join(", ");
+      const byRequest = await sqlAll<Record<string, unknown>>(
+        db.engine,
+        `SELECT * FROM authorization_requests WHERE user_id = ? AND run_id IN (${placeholders})`,
+        [userId, ...ids],
+      );
+      const decisionLinked = await sqlAll<{ request_id: string }>(
+        db.engine,
+        `SELECT DISTINCT request_id FROM authorization_decisions WHERE user_id = ? AND run_id IN (${placeholders})`,
+        [userId, ...ids],
+      );
+      const seen = new Set(byRequest.map((row) => String(row.id)));
+      const extraIds = decisionLinked.map((row) => row.request_id).filter((id) => !seen.has(id));
+      const extra = extraIds.length
+        ? await sqlAll<Record<string, unknown>>(
+            db.engine,
+            `SELECT * FROM authorization_requests WHERE user_id = ? AND id IN (${extraIds.map(() => "?").join(", ")})`,
+            [userId, ...extraIds],
+          )
+        : [];
+      const requests = [...byRequest, ...extra]
+        .map(asRequest)
+        .sort((a, b) => a.created_at.localeCompare(b.created_at));
+      return joinRequests(requests);
+    },
+
     async recordRisk(assessment: RiskAssessmentRecord): Promise<void> {
       await insertRow(db.engine, "risk_assessments", assessment as unknown as Record<string, unknown>);
     },
@@ -181,6 +270,25 @@ export function createAuthorizationRepository(db: DbClient): AuthorizationReposi
         db.engine,
         "SELECT * FROM approvals WHERE user_id = ? AND request_hash = ? ORDER BY created_at DESC LIMIT 1",
         [userId, requestHash],
+      );
+      return row ? asApproval(row) : null;
+    },
+
+    async findOpenApprovalByHash(
+      userId: string,
+      agentId: string,
+      requestHash: string,
+      nowIso: string,
+    ): Promise<Approval | null> {
+      const row = await sqlGet<Record<string, unknown>>(
+        db.engine,
+        `SELECT * FROM approvals
+         WHERE user_id = ? AND agent_id = ? AND request_hash = ?
+           AND state IN ('approved', 'pending') AND consumed_at IS NULL
+           AND (expires_at IS NULL OR expires_at > ?)
+         ORDER BY CASE state WHEN 'approved' THEN 0 ELSE 1 END, created_at ASC
+         LIMIT 1`,
+        [userId, agentId, requestHash, nowIso],
       );
       return row ? asApproval(row) : null;
     },

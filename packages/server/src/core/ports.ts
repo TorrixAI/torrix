@@ -63,6 +63,10 @@ export interface ProjectRepository {
   findDefault(userId: string): Promise<Project | null>;
   listByUser(userId: string): Promise<Project[]>;
   listAccessible(userId: string): Promise<ProjectAccess[]>;
+  /** Every project on the instance; admin views only. */
+  listAll(): Promise<Project[]>;
+  /** Member counts per project, for the admin project table. */
+  memberCounts(): Promise<Array<{ projectId: string; count: number }>>;
   roleFor(userId: string, projectId: string): Promise<ProjectRole | null>;
   rename(id: string, name: string): Promise<void>;
   delete(id: string): Promise<boolean>;
@@ -112,15 +116,36 @@ export interface RunRepository {
   countChildren(userId: string, parentIds: string[]): Promise<RunChildCount[]>;
   listByShareToken(token: string, limit: number): Promise<Run[]>;
   listGroups(userId: string, kind: "trace" | "session", limit: number): Promise<TraceGroup[]>;
+  /** Same aggregates as `listGroups`, with the runs-list filters and group paging. */
+  listGroupsFiltered(
+    userId: string,
+    kind: "trace" | "session",
+    filters: RunListFilters,
+    limit: number,
+    offset: number,
+  ): Promise<{ groups: TraceGroup[]; total: number }>;
+  /** All runs of the given groups that match the filters, oldest first per group. */
+  listByGroupIds(
+    userId: string,
+    kind: "trace" | "session",
+    groupIds: string[],
+    filters: RunListFilters,
+    limit: number,
+  ): Promise<Run[]>;
+  /** Earliest root run (no parent) per group, for the traces index columns. */
+  listGroupRoots(userId: string, kind: "trace" | "session", groupIds: string[], projectId?: string): Promise<GroupRoot[]>;
   listGroup(userId: string, query: RunGroupQuery): Promise<{ runs: Run[]; total: number }>;
   listByParents(userId: string, parentIds: string[], limit: number): Promise<Run[]>;
-  listObservedAgents(userId: string, limit: number): Promise<ObservedAgent[]>;
+  listObservedAgents(userId: string, limit: number, projectId?: string): Promise<ObservedAgent[]>;
   analyticsByModel(userId: string, filter: AnalyticsFilter): Promise<AnalyticsRow[]>;
   analyticsByEndUser(userId: string, filter: AnalyticsFilter): Promise<AnalyticsRow[]>;
   analyticsByAgent(userId: string, filter: AnalyticsFilter): Promise<AnalyticsRow[]>;
+  analyticsByProject(userId: string, filter: AnalyticsFilter): Promise<AnalyticsRow[]>;
+  /** Instance-wide month spend per project, across all users (admin views only). */
+  spendByProjectSince(since: string): Promise<Array<{ projectId: string; spend: number; runs: number }>>;
   analyticsByTool(userId: string, filter: AnalyticsFilter): Promise<AnalyticsRow[]>;
   listGolden(userId: string, limit: number, projectId?: string): Promise<Run[]>;
-  runsSince(userId: string, isoCutoff: string, limit: number): Promise<Run[]>;
+  runsSince(userId: string, isoCutoff: string, limit: number, projectId?: string): Promise<Run[]>;
 }
 
 export interface ObservedAgent {
@@ -262,12 +287,21 @@ export interface RunChildCount {
   count: number;
 }
 
+/** One tool-call event, trimmed for the flow graph markers. */
+export interface RunToolEvent {
+  runId: string;
+  message: string;
+  createdAt: string;
+}
+
 export interface EventRepository {
   add(event: Events): Promise<void>;
   addMany(events: Events[]): Promise<void>;
   listByRun(runId: string): Promise<Events[]>;
   listByRunIds(runIds: string[]): Promise<Events[]>;
   countByRunIds(runIds: string[]): Promise<RunEventCount[]>;
+  /** Tool-call events for a page of runs, oldest first and capped by the caller. */
+  listToolEvents(runIds: string[], limit: number): Promise<RunToolEvent[]>;
 }
 
 export interface InstanceRepository {
@@ -438,6 +472,13 @@ export interface TraceGroup {
   agents: string[];
 }
 
+/** Earliest root run of a trace/session group; the body is capped at 4 KB in SQL. */
+export interface GroupRoot {
+  groupId: string;
+  agentName: string | null;
+  requestBody: string | null;
+}
+
 export interface RunGroupQuery {
   kind: "trace" | "session";
   id: string;
@@ -448,6 +489,7 @@ export interface RunGroupQuery {
 export interface AgentRepository {
   listByUser(userId: string): Promise<Agent[]>;
   countByUser(userId: string): Promise<number>;
+  countActiveByUser(userId: string): Promise<number>;
   getById(id: string, userId: string): Promise<Agent | null>;
   getBySlug(userId: string, slug: string): Promise<Agent | null>;
   findByExternal(userId: string, provider: string, subject: string): Promise<Agent | null>;
@@ -519,6 +561,16 @@ export interface ApprovalQuery {
   offset: number;
 }
 
+/** A decision joined with everything an operator needs to audit it. */
+export interface AuthorizationJoin {
+  request: AuthorizationRequest;
+  decision: AuthorizationDecisionRecord | null;
+  risk: RiskAssessmentRecord | null;
+  approval: Approval | null;
+  principal: Principal | null;
+  delegation: Delegation | null;
+}
+
 export interface AuthorizationRepository {
   getSettings(userId: string): Promise<AgentControlSettings>;
   updateSettings(userId: string, fields: Partial<AgentControlSettings>): Promise<void>;
@@ -528,11 +580,15 @@ export interface AuthorizationRepository {
   recordDecision(decision: AuthorizationDecisionRecord): Promise<void>;
   listDecisions(userId: string, query: AuthorizationQuery): Promise<{ decisions: AuthorizationDecisionRecord[]; total: number }>;
   getDecision(id: string, userId: string): Promise<AuthorizationDecisionRecord | null>;
+  listByTrace(userId: string, traceId: string): Promise<AuthorizationJoin[]>;
+  listByRuns(userId: string, runIds: string[]): Promise<AuthorizationJoin[]>;
   recordRisk(assessment: RiskAssessmentRecord): Promise<void>;
   createApproval(approval: Approval): Promise<void>;
   getApproval(id: string, userId: string): Promise<Approval | null>;
   getApprovalByRequest(requestId: string): Promise<Approval | null>;
   getApprovalByHash(userId: string, requestHash: string): Promise<Approval | null>;
+  /** The approval an identical retry can use: pending or approved, unconsumed, unexpired. Approved wins. */
+  findOpenApprovalByHash(userId: string, agentId: string, requestHash: string, nowIso: string): Promise<Approval | null>;
   listApprovals(userId: string, query: ApprovalQuery): Promise<{ approvals: Approval[]; total: number }>;
   updateApproval(id: string, fields: Partial<Approval>): Promise<void>;
   consumeApproval(id: string): Promise<boolean>;

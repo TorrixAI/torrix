@@ -45,7 +45,7 @@ export interface CascadedScore {
  * it just leaves the deterministic result in place.
  */
 export async function scoreWithCascade(
-  deps: EvalDeps,
+  deps: JudgeDeps,
   evalRecord: Eval,
   input: string,
   response: string,
@@ -71,7 +71,7 @@ export async function scoreWithCascade(
  * judge_cost_usd total for the eval detail view.
  */
 async function judgeScore(
-  deps: EvalDeps,
+  deps: JudgeDeps,
   evalRecord: Eval,
   input: string,
   response: string,
@@ -164,6 +164,14 @@ async function findRunResponse(
 export interface EvalDeps {
   repos: Repositories;
   edition: EditionConfig;
+  /** Online-eval capability, resolved through the extension host. */
+  onlineEvals?: boolean;
+  assist?: Assist;
+}
+
+/** What scoring needs: repositories plus the optional judge assist. */
+export interface JudgeDeps {
+  repos: Repositories;
   assist?: Assist;
 }
 
@@ -182,7 +190,7 @@ export async function runEvaluation(deps: EvalDeps, evalId: string, userId: stri
   const rows = await repos.datasets.listRows(evalRecord.dataset_id);
   await patchEval(deps, evalRecord, { total_rows: rows.length, started_at: now(), rows_done: 0, passed: 0, fail: 0, score_sum: 0, judge_cost_usd: 0 });
   try {
-    if (evalRecord.mode === "online" && edition.onlineEvals) {
+    if (evalRecord.mode === "online" && deps.onlineEvals) {
       await runOnline(deps, evalRecord, rows);
     } else if (evalRecord.mode === "offline") {
       await runOffline(deps, evalRecord, rows);

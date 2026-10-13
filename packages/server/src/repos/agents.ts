@@ -21,6 +21,15 @@ export function createAgentRepository(db: DbClient): AgentRepository {
       return Number(row?.c ?? 0);
     },
 
+    async countActiveByUser(userId: string): Promise<number> {
+      const row = await sqlGet<{ c: number }>(
+        db.engine,
+        "SELECT COUNT(*) AS c FROM agents WHERE user_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)",
+        [userId, new Date().toISOString()],
+      );
+      return Number(row?.c ?? 0);
+    },
+
     async getById(id: string, userId: string): Promise<Agent | null> {
       const row = await sqlGet<Record<string, unknown>>(
         db.engine,

@@ -25,7 +25,17 @@ export async function createTestDb(extensions: readonly TorrixExtension[] = []):
   const db = openDatabase(path.join(dir, "test.sqlite"));
   const sources: MigrationSource[] = [
     coreMigrationSource(),
-    ...extensions.flatMap((ext) => (ext.migrations ? [{ id: ext.id, dirs: ext.migrations }] : [])),
+    ...extensions.flatMap((ext) =>
+      ext.migrations
+        ? [
+            {
+              id: ext.id,
+              dirs: { sqlite: ext.migrations.sqlite, postgres: ext.migrations.postgres },
+              files: ext.migrations.files,
+            },
+          ]
+        : [],
+    ),
   ];
   await runMigrationSources(db, sources);
   const repos = createRepositories(db);

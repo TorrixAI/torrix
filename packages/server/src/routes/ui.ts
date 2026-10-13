@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { BRAND_LOGO_PATH, FONT_PATHS } from "../assets/files";
 import { editionAtLeast, type Edition, type ServerConfig } from "../core/config";
 import type { ExtensionHost } from "../core/extensionHost";
+import type { TraceAnnotation } from "../core/extensions";
 import { lockedFeature, type LockedFeature } from "../core/lockedFeatures";
 import type { Repositories } from "../repos";
 import { extractBearer, authenticateKey, readAuthCookie, buildAuthCookie, clearAuthCookie } from "../lib/auth";
@@ -13,7 +14,7 @@ import { buildRunTree, runEndMs, runStartMs } from "../lib/runTree";
 import { extractUserPrompt } from "../lib/extract";
 import { PII_TYPES, parsePiiTypes } from "../lib/pii";
 import type { AuthResult, Run, Events, Prompt, PromptVersion, Dataset, DatasetRow, Eval, Project, ApiKey, AlertSettings, PricingOverride, AuditEntry, GovernanceSettings, Policy, ReviewItem, RoutingRule, ExportConfig, OnlineEvalConfig, RunJudgment, JudgeSettings } from "../core/domain";
-import type { DashboardStats, ProjectAccess, RunEventCount, RunListSummary, TraceGroup, AnalyticsRow } from "../core/ports";
+import type { DashboardStats, GroupRoot, ProjectAccess, RunEventCount, RunListSummary, RunToolEvent, TraceGroup, AnalyticsRow } from "../core/ports";
 
 export interface UiDeps {
   repos: Repositories;
@@ -582,6 +583,12 @@ tr.clickable{cursor:pointer}
 .run-head .rh-title{font-family:var(--display);font-size:23px;font-weight:600;letter-spacing:-.022em;margin:0 0 10px;color:var(--heading);word-break:break-word}
 .run-head .rh-chips{display:flex;gap:7px;flex-wrap:wrap}
 .rd-links{display:flex;gap:8px;margin:-4px 0 14px}
+.rd-breadcrumb{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px;font-size:12.5px}
+.rd-breadcrumb a{color:var(--accent);text-decoration:none}
+.rd-breadcrumb a:hover{text-decoration:underline}
+.rd-crumb-sep{color:var(--text-3)}
+.rd-crumb-current{color:var(--text-2);font-weight:600}
+.rd-stepper{display:inline-flex;align-items:center;gap:8px;margin-left:auto}
 .rd-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 4px}
 .rd-form{display:flex;flex-direction:column;gap:6px;margin-top:10px;max-width:680px}
 .rd-form label{font-family:var(--mono);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3);margin:10px 0 0}
@@ -895,6 +902,75 @@ export function chips(parts: Array<string | null>, sep = " · "): string {
   return parts.filter(Boolean).slice(0, 3).join(sep);
 }
 
+const PROJECT_COOKIE = "torrix_project";
+
+/** Reads the sticky project scope cookie; empty string when unset. */
+export function readProjectCookie(headers: unknown): string {
+  const raw = String((headers as Record<string, unknown>).cookie ?? "");
+  for (const part of raw.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) {
+      continue;
+    }
+    if (part.slice(0, eq).trim() === PROJECT_COOKIE) {
+      return decodeURIComponent(part.slice(eq + 1).trim());
+    }
+  }
+  return "";
+}
+
+export function buildProjectCookie(value: string): string {
+  return `${PROJECT_COOKIE}=${encodeURIComponent(value)}; SameSite=Lax; Path=/; Max-Age=31536000`;
+}
+
+export function clearProjectCookie(): string {
+  return `${PROJECT_COOKIE}=; SameSite=Lax; Path=/; Max-Age=0`;
+}
+
+export interface ProjectScope {
+  projectId: string | undefined;
+  setCookie: string | null;
+  clearCookie: boolean;
+}
+
+/**
+ * The effective project for a page: an explicit `?project=` wins (`?project=` with no
+ * value means all projects), otherwise the sticky cookie applies, so the topbar
+ * selector follows the operator across pages.
+ */
+export async function resolveProjectScope(
+  request: FastifyRequest,
+  repos: Repositories,
+  userId: string,
+): Promise<ProjectScope> {
+  const q = request.query as { project?: string };
+  const cookieValue = readProjectCookie(request.headers);
+  if (q.project !== undefined) {
+    const wanted = q.project ?? "";
+    if (!wanted) {
+      return { projectId: undefined, setCookie: null, clearCookie: cookieValue !== "" };
+    }
+    const allowed = await repos.projects.roleFor(userId, wanted);
+    if (!allowed) {
+      return { projectId: undefined, setCookie: null, clearCookie: false };
+    }
+    return { projectId: wanted, setCookie: wanted !== cookieValue ? wanted : null, clearCookie: false };
+  }
+  if (!cookieValue) {
+    return { projectId: undefined, setCookie: null, clearCookie: false };
+  }
+  const allowed = await repos.projects.roleFor(userId, cookieValue);
+  return { projectId: allowed ? cookieValue : undefined, setCookie: null, clearCookie: false };
+}
+
+export function applyProjectScope(reply: FastifyReply, scope: ProjectScope): void {
+  if (scope.setCookie) {
+    reply.header("set-cookie", buildProjectCookie(scope.setCookie));
+  } else if (scope.clearCookie) {
+    reply.header("set-cookie", clearProjectCookie());
+  }
+}
+
 export function backLink(href: string, label = "Back"): string {
   return `<a class="back-link" href="${href}">← ${label}</a>`;
 }
@@ -1028,7 +1104,7 @@ ${THEME_BOOT}
       </div>
     </div>
   </header>
-  <main class="content">${config.isDemo ? `<div class="demo-banner">Demo mode · read-only: writes are disabled</div>` : ""}${config.edition === "community" ? `<div class="up-banner">Community edition · Pro adds LLM judges, guardrails, routing and policies; Enterprise adds agent governance, SSO and compliance reporting. Licenses live under <a href="/ui/settings">Settings</a>.</div>` : ""}<div id="update-banner" class="sys-banner" style="display:none"></div>${body}</main>
+  <main class="content">${config.isDemo ? `<div class="demo-banner">Demo mode · read-only: writes are disabled</div>` : ""}${config.edition === "community" ? `<div class="up-banner">Community edition · Pro adds LLM judges, guardrails, routing, policies and agent governance (10 agents); Enterprise adds unlimited agents, SSO and compliance reporting. Licenses live under <a href="/ui/settings">Settings</a>.</div>` : ""}<div id="update-banner" class="sys-banner" style="display:none"></div>${body}</main>
 </div>
 </div>
 <script>function signOut(){localStorage.removeItem("torrix_key");location.href="/ui/logout"}</script>
@@ -1100,6 +1176,11 @@ ${THEME_BOOT}
   document.getElementById("mobile-menu").addEventListener("click",function(){app.classList.toggle("side-open")});
   var pick=document.getElementById("project-pick");
   var current="";try{current=localStorage.getItem("torrix_project_id")||""}catch(e){}
+  // An explicit ?project= in the URL wins and syncs the sticky scope (empty value = all projects).
+  try{
+    var urlProject=new URL(location.href).searchParams.get("project");
+    if(urlProject!==null){current=urlProject;localStorage.setItem("torrix_project_id",urlProject)}
+  }catch(e){}
   fetch("/api/projects").then(function(r){return r.ok?r.json():null}).then(function(j){
     if(!j||!j.projects)return;
     j.projects.forEach(function(p){var o=document.createElement("option");o.value=p.id;o.textContent=p.name;if(p.id===current)o.selected=true;pick.appendChild(o)});
@@ -1107,7 +1188,8 @@ ${THEME_BOOT}
   pick.addEventListener("change",function(){
     var v=pick.value;
     try{localStorage.setItem("torrix_project_id",v);localStorage.setItem("torrix_project_name",pick.options[pick.selectedIndex].textContent)}catch(e){}
-    var u=new URL(location.href);if(v)u.searchParams.set("project",v);else u.searchParams.delete("project");
+    document.cookie="torrix_project="+encodeURIComponent(v)+"; Path=/; Max-Age="+(v?31536000:0)+"; SameSite=Lax";
+    var u=new URL(location.href);u.searchParams.set("project",v);
     location.href=u.toString();
   });
   // SPA-style transition: fade the content out briefly before same-origin page navigation.
@@ -1143,7 +1225,7 @@ ${THEME_SCRIPT}
   };
 }
 
-function editionName(edition: Edition): string {
+export function editionName(edition: Edition): string {
   return edition === "enterprise" ? "Enterprise" : edition === "pro" ? "Pro" : "Community";
 }
 
@@ -1269,44 +1351,74 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const q = request.query as Record<string, string | undefined>;
     const range = q.range === "7" ? 7 : q.range === "30" ? 30 : 14;
-    const projectId = q.project && (await repos.projects.roleFor(authUser.user.id, q.project)) ? q.project : undefined;
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const projectId = scope.projectId;
     const [stats, judgeCostUsd] = await Promise.all([
       repos.runs.dashboardStats(authUser.user.id, { from: daysAgo(range), projectId }),
       repos.judge.sumCostSince(authUser.user.id, monthStart()),
     ]);
-    reply.type("text/html").send(pages.page("Dashboard", dashboardBody({ ...stats, judgeCostUsd }, range, allowed("judge")), "dashboard", authUser.user));
+    const projectName = projectId ? (await repos.projects.findById(projectId))?.name ?? null : null;
+    reply.type("text/html").send(pages.page("Dashboard", dashboardBody({ ...stats, judgeCostUsd }, range, allowed("judge"), projectName), "dashboard", authUser.user));
   });
 
   app.get("/ui/analytics", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const q = request.query as Record<string, string | undefined>;
     const range = q.range === "7" ? 7 : q.range === "30" ? 30 : 14;
-    const projectId = q.project && (await repos.projects.roleFor(authUser.user.id, q.project)) ? q.project : undefined;
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const projectId = scope.projectId;
     const projectName = projectId ? (await repos.projects.findById(projectId))?.name ?? null : null;
-    const [stats, models, agents, endUsers, tools] = await Promise.all([
+    const [stats, models, agents, endUsers, tools, byProject, accessible] = await Promise.all([
       repos.runs.dashboardStats(authUser.user.id, { from: daysAgo(range), projectId }),
       repos.runs.analyticsByModel(authUser.user.id, { days: range, projectId }),
       repos.runs.analyticsByAgent(authUser.user.id, { days: range, projectId }),
       repos.runs.analyticsByEndUser(authUser.user.id, { days: range, projectId }),
       repos.runs.analyticsByTool(authUser.user.id, { days: range, projectId }),
+      repos.runs.analyticsByProject(authUser.user.id, { days: range, projectId }),
+      repos.projects.listAccessible(authUser.user.id),
     ]);
+    const projectNames = new Map(accessible.map((entry) => [entry.project.id, entry.project.name]));
     reply
       .type("text/html")
-      .send(pages.page("Analytics", analyticsBody(stats, models, agents, endUsers, tools, range, projectId ?? null, projectName), "analytics", authUser.user));
+      .send(pages.page("Analytics", analyticsBody(stats, models, agents, endUsers, tools, byProject, projectNames, range, projectId ?? null, projectName), "analytics", authUser.user));
   });
 
   app.get("/ui/live", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
-    reply.type("text/html").send(pages.page("Live feed", liveFeedBody(), "live", authUser.user));
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const projectName = scope.projectId ? (await repos.projects.findById(scope.projectId))?.name ?? null : null;
+    reply.type("text/html").send(pages.page("Live feed", liveFeedBody(scope.projectId ?? null, projectName), "live", authUser.user));
   });
 
   app.get("/ui/team", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const access = await repos.projects.listAccessible(authUser.user.id);
-    const users = authUser.user.is_admin === 1 ? await repos.users.list() : [];
+    const isAdmin = authUser.user.is_admin === 1;
+    const users = isAdmin ? await repos.users.list() : [];
+    let adminProjects: AdminProjectRow[] = [];
+    if (isAdmin) {
+      const [projects, members, spend] = await Promise.all([
+        repos.projects.listAll(),
+        repos.projects.memberCounts(),
+        repos.runs.spendByProjectSince(monthStart()),
+      ]);
+      const ownerEmail = new Map(users.map((user) => [user.id, user.email]));
+      const memberCount = new Map(members.map((entry) => [entry.projectId, entry.count]));
+      const spendByProject = new Map(spend.map((entry) => [entry.projectId, entry]));
+      adminProjects = projects.map((project) => ({
+        project,
+        ownerEmail: ownerEmail.get(project.user_id) ?? null,
+        members: memberCount.get(project.id) ?? 0,
+        spend: spendByProject.get(project.id)?.spend ?? 0,
+        runs: spendByProject.get(project.id)?.runs ?? 0,
+      }));
+    }
     reply
       .type("text/html")
-      .send(pages.page("Team", teamBody(access, users, authUser.user.is_admin === 1), "team", authUser.user));
+      .send(pages.page("Team", teamBody(access, users, isAdmin, adminProjects), "team", authUser.user));
   });
 
   app.get("/ui/runs", { preHandler: authenticate }, async (request, reply) => {
@@ -1315,8 +1427,9 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
     const score: "good" | "bad" | "unscored" | undefined =
       q.score === "good" || q.score === "bad" || q.score === "unscored" ? q.score : undefined;
     const group: RunGroupMode = q.group === "session" || q.group === "trace" ? q.group : "none";
-    const projectParam = q.project || undefined;
-    const projectId = projectParam && (await repos.projects.roleFor(authUser.user.id, projectParam)) ? projectParam : undefined;
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const projectId = scope.projectId;
     const filters: RunListFilters = {
       score,
       source: q.source || undefined,
@@ -1336,6 +1449,8 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
     };
     const limit = 50;
     const offset = Math.max(0, Number(q.offset) || 0);
+    const groupLimit = 10;
+    const groupPage = Math.max(0, Number(q.gpage) || 0);
     const listFilters = {
       projectId,
       source: filters.source,
@@ -1353,12 +1468,28 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
       sort: filters.sort,
       dir: filters.dir,
     };
-    const [{ runs, total }, stats, summary, projects] = await Promise.all([
-      repos.runs.list(authUser.user.id, { ...listFilters, limit, offset }),
-      repos.runs.dashboardStats(authUser.user.id, { from: daysAgo(30) }),
+    const [stats, summary, projects] = await Promise.all([
+      repos.runs.dashboardStats(authUser.user.id, { from: daysAgo(30), projectId }),
       repos.runs.listSummary(authUser.user.id, listFilters),
       repos.projects.listAccessible(authUser.user.id),
     ]);
+    let runs: Run[] = [];
+    let total = 0;
+    let groups: TraceGroup[] | undefined;
+    let groupTotal = 0;
+    if (group !== "none") {
+      const grouped = await repos.runs.listGroupsFiltered(authUser.user.id, group, listFilters, groupLimit, groupPage * groupLimit);
+      groups = grouped.groups;
+      groupTotal = grouped.total;
+      runs = groups.length
+        ? await repos.runs.listByGroupIds(authUser.user.id, group, groups.map((entry) => entry.id), listFilters, 600)
+        : [];
+      total = runs.length;
+    } else {
+      const listed = await repos.runs.list(authUser.user.id, { ...listFilters, limit, offset });
+      runs = listed.runs;
+      total = listed.total;
+    }
     const [counts, childCounts] = await Promise.all([
       repos.events.countByRunIds(runs.map((r) => r.id)),
       repos.runs.countChildren(authUser.user.id, runs.map((r) => r.id)),
@@ -1369,6 +1500,10 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
       eventStats: runEventStats(counts),
       childCounts: new Map(childCounts.map((c) => [c.parentRunId, c.count])),
       projects,
+      groups,
+      groupTotal,
+      groupPage,
+      groupLimit,
     };
     reply.type("text/html").send(pages.page("Runs", runsListBody(runs, total, filters, offset, limit, stats, view), "runs", authUser.user));
   });
@@ -1402,18 +1537,31 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
   app.get("/ui/insights", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const assist = deps.host?.assist();
-    const report = await getInsights(repos, authUser.user.id, 7, false, assist);
-    const savings = await savingsReport(repos, authUser.user.id, { days: report.windowDays, assist });
-    reply.type("text/html").send(pages.page("Insights", insightsBody(report, savings), "insights", authUser.user));
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const report = await getInsights(repos, authUser.user.id, 7, false, assist, scope.projectId);
+    const savings = await savingsReport(repos, authUser.user.id, { days: report.windowDays, assist, projectId: scope.projectId });
+    const projectName = scope.projectId ? (await repos.projects.findById(scope.projectId))?.name ?? null : null;
+    reply.type("text/html").send(pages.page("Insights", insightsBody(report, savings, projectName), "insights", authUser.user));
   });
 
   app.get("/ui/traces", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
-    const [sessions, traces] = await Promise.all([
-      repos.runs.listGroups(authUser.user.id, "session", 40),
-      repos.runs.listGroups(authUser.user.id, "trace", 40),
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const [sessionPage, tracePage] = await Promise.all([
+      repos.runs.listGroupsFiltered(authUser.user.id, "session", { projectId: scope.projectId }, 40, 0),
+      repos.runs.listGroupsFiltered(authUser.user.id, "trace", { projectId: scope.projectId }, 40, 0),
     ]);
-    reply.type("text/html").send(pages.page("Traces", tracesIndexBody(sessions, traces), "traces", authUser.user));
+    const sessions = sessionPage.groups;
+    const traces = tracePage.groups;
+    const [sessionRoots, traceRoots] = await Promise.all([
+      repos.runs.listGroupRoots(authUser.user.id, "session", sessions.map((group) => group.id), scope.projectId),
+      repos.runs.listGroupRoots(authUser.user.id, "trace", traces.map((group) => group.id), scope.projectId),
+    ]);
+    const roots = new Map([...sessionRoots, ...traceRoots].map((root) => [root.groupId, root]));
+    const projectName = scope.projectId ? (await repos.projects.findById(scope.projectId))?.name ?? null : null;
+    reply.type("text/html").send(pages.page("Traces", tracesIndexBody(sessions, traces, roots, projectName), "traces", authUser.user));
   });
 
   const GROUP_PAGE = 200;
@@ -1429,7 +1577,19 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
     const descendants = await collectDescendantRuns(repos, authUser.user.id, runs, runs.length + 200);
     const all = [...runs, ...descendants];
     const counts = await repos.events.countByRunIds(all.map((r) => r.id));
-    const body = runGroupBody(kind, id, all, total, counts, descendants.length, { page, pages: pageCount, pageSize: GROUP_PAGE });
+    const annotations =
+      kind === "trace" && deps.host
+        ? await deps.host.traceAnnotations({ userId: authUser.user.id, traceId: id, runIds: all.map((r) => r.id) })
+        : [];
+    let answerText: string | null = null;
+    if (kind === "trace" && all.length) {
+      const last = [...all].sort((a, b) => runEndMs(a) - runEndMs(b))[all.length - 1];
+      const lastEvents = await repos.events.listByRun(last.id);
+      const response = [...lastEvents].reverse().find((event) => event.type === "response");
+      answerText = response?.message ?? last.error ?? null;
+    }
+    const toolEvents = await repos.events.listToolEvents(all.map((run) => run.id), 400);
+    const body = runGroupBody(kind, id, all, total, counts, descendants.length, { page, pages: pageCount, pageSize: GROUP_PAGE }, annotations, answerText, toolEvents);
     return pages.page(kind === "trace" ? "Trace" : "Session", body, "traces", authUser.user);
   };
 
@@ -1521,7 +1681,7 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
       pages.page(
         dataset.name ?? "Dataset",
         datasetDetailBody(dataset, rows, evals, resultsByEval, {
-          onlineEvals: config.editionConfig.onlineEvals,
+          onlineEvals: deps.host?.featureAllowed("online-evals") ?? false,
           maxDatasetRows: config.editionConfig.maxDatasetRows,
         }),
         "datasets",
@@ -1556,10 +1716,12 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
 
   app.get("/ui/cost", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
+    const q = request.query as { project?: string };
     const settings = await repos.alerts.getByUser(authUser.user.id);
     const since = monthStart();
     const userSpend = await spendSince(repos, authUser.user.id, since);
-    const projects = await repos.projects.listByUser(authUser.user.id);
+    const accessible = await repos.projects.listAccessible(authUser.user.id);
+    const projects = accessible.map((entry) => entry.project);
     const keys = await repos.apiKeys.listByUser(authUser.user.id);
     const prices = await repos.prices.list();
     const projectSpend: Record<string, number> = {};
@@ -1570,10 +1732,14 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
     for (const key of keys) {
       keySpend[key.id] = await spendSince(repos, authUser.user.id, since, "api_key", key.id);
     }
+    const selectedScope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, selectedScope);
+    const selected = selectedScope.projectId ? projects.find((project) => project.id === selectedScope.projectId) ?? null : null;
+    const selectedStats = selected ? await repos.runs.dashboardStats(authUser.user.id, { from: since, projectId: selected.id }) : null;
     reply.type("text/html").send(
       pages.page(
         "Cost & Alerts",
-        costPageBody({ settings, since, userSpend, projects, keys, prices, projectSpend, keySpend }),
+        costPageBody({ settings, since, userSpend, projects, keys, prices, projectSpend, keySpend, selected, selectedStats }),
         "cost",
         authUser.user,
       ),
@@ -1659,7 +1825,32 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
       repos.runs.listByParents(authUser.user.id, [id], 100),
       deps.host?.renderSlot("run.judge", { userId: authUser.user.id, runId: id }) ?? Promise.resolve(""),
     ]);
-    reply.type("text/html").send(pages.page("Run detail", runDetailBody(run, events, children, judgeSlot), "runs", authUser.user));
+    const parents: Run[] = [];
+    let cursor = run.parent_run_id;
+    for (let depth = 0; cursor && depth < 8; depth += 1) {
+      const parent = await repos.runs.getById(cursor, authUser.user.id);
+      if (!parent) {
+        break;
+      }
+      parents.unshift(parent);
+      cursor = parent.parent_run_id;
+    }
+    let navRuns: Run[] = [];
+    if (run.trace_id) {
+      navRuns = (await repos.runs.listGroup(authUser.user.id, { kind: "trace", id: run.trace_id, limit: 500, offset: 0 })).runs;
+    } else if (run.session_id) {
+      navRuns = (await repos.runs.listGroup(authUser.user.id, { kind: "session", id: run.session_id, limit: 500, offset: 0 })).runs;
+    }
+    const ordered = [...navRuns].sort((a, b) => runStartMs(a) - runStartMs(b));
+    const position = ordered.findIndex((candidate) => candidate.id === run.id);
+    const nav: RunNav = {
+      parents,
+      prev: position > 0 ? ordered[position - 1] : null,
+      next: position >= 0 && position < ordered.length - 1 ? ordered[position + 1] : null,
+      position: position >= 0 ? position + 1 : 0,
+      total: ordered.length,
+    };
+    reply.type("text/html").send(pages.page("Run detail", runDetailBody(run, events, children, judgeSlot, nav), "runs", authUser.user));
   });
 
   app.get("/ui/runs/:id/media/:index", { preHandler: authenticate }, async (request, reply) => {
@@ -1920,13 +2111,13 @@ const dashboardScript = `(function(){
 })();
 `;
 
-function liveFeedBody(): string {
+function liveFeedBody(projectId: string | null = null, projectName: string | null = null): string {
   return `<style>
   #live-rows tr.live-new{animation:liveIn .35s ease-out}
   @keyframes liveIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
   </style>
   <div class="page-head">
-    <div><h1>Live feed</h1><p class="page-sub">New runs stream in as they are captured. Pause to read without losing the buffer.</p></div>
+    <div><h1>Live feed</h1><p class="page-sub">New runs stream in as they are captured${projectName ? ` · project ${escapeHtml(projectName)}` : ""}. Pause to read without losing the buffer.</p></div>
     <div style="display:flex;gap:8px;align-items:center"><button class="btn btn-ghost" id="live-pause" type="button">Pause</button><span class="panel-note" id="live-state">connecting…</span></div>
   </div>
   <div class="stat-tiles" style="margin-bottom:14px">
@@ -1937,12 +2128,13 @@ function liveFeedBody(): string {
   <div class="panel"><div class="panel-head"><span class="panel-title">Incoming</span><span class="panel-note" id="live-buffer"></span></div>
     <div class="table-wrap"><table>
       <thead><tr><th>Time</th><th>Run</th><th>Agent</th><th>Model</th><th class="num">Tokens</th><th class="num">Cost</th><th>Status</th></tr></thead>
-      <tbody id="live-rows"><tr id="live-empty"><td colspan="7" class="panel-note" style="padding:16px">Waiting for the first run…</td></tr></tbody>
+      <tbody id="live-rows"><tr id="live-empty"><td colspan="7" class="panel-note" style="padding:16px">Waiting for the first run${projectName ? " in this project" : ""}…</td></tr></tbody>
     </table></div>
   </div>
   <script>(function(){
     var rows=document.getElementById("live-rows"),state=document.getElementById("live-state"),
       bufferNote=document.getElementById("live-buffer"),pauseBtn=document.getElementById("live-pause");
+    var scope=${JSON.stringify(projectId)};
     var runs=0,cost=0,errors=0,paused=false,buffer=[];
     function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
     function fmtUsd(n){return "$"+Number(n||0).toFixed(6)}
@@ -1955,6 +2147,7 @@ function liveFeedBody(): string {
       document.getElementById("live-count-errors").textContent=String(errors);
     }
     function add(run){
+      if(scope&&String(run.project_id||"")!==scope)return;
       runs+=1;cost+=Number(run.cost_usd||0);if(Number(run.status||0)>=400)errors+=1;
       var empty=document.getElementById("live-empty");if(empty)empty.remove();
       var tr=document.createElement("tr");
@@ -2009,10 +2202,19 @@ function liveFeedBody(): string {
   })();</script>`;
 }
 
+interface AdminProjectRow {
+  project: Project;
+  ownerEmail: string | null;
+  members: number;
+  spend: number;
+  runs: number;
+}
+
 function teamBody(
   access: ProjectAccess[],
-  users: Array<{ email: string; is_admin: number; created_at: string }>,
+  users: Array<{ id: string; email: string; is_admin: number; created_at: string }>,
   isAdmin: boolean,
+  adminProjects: AdminProjectRow[] = [],
 ): string {
   const projectRows = access
     .map(
@@ -2032,6 +2234,19 @@ function teamBody(
     </tr>`,
     )
     .join("");
+  const adminProjectRows = adminProjects
+    .map(
+      (row) => `<tr>
+      <td><a href="/ui/runs?project=${encodeURIComponent(row.project.id)}">${escapeHtml(row.project.name)}</a></td>
+      <td class="mono">${escapeHtml(row.ownerEmail ?? row.project.user_id.slice(0, 8))}</td>
+      <td class="num">${row.members}</td>
+      <td class="num">${row.runs.toLocaleString()}</td>
+      <td class="num mono">${fmtUsd(row.spend)}</td>
+      <td class="num mono">${row.project.budget_usd == null ? "-" : fmtUsd(row.project.budget_usd)}</td>
+      <td class="num mono">${row.project.hard_cap_usd == null ? "-" : fmtUsd(row.project.hard_cap_usd)}</td>
+    </tr>`,
+    )
+    .join("");
   return `<div class="page-head"><div><h1>Team</h1><p class="page-sub">Project membership and account roles. Manage members per project on the Projects page.</p></div></div>
   <div class="panel" style="margin-bottom:16px"><div class="panel-head"><span class="panel-title">Your projects</span><span class="panel-note">${access.length} accessible</span></div>
     <div class="table-wrap"><table><thead><tr><th>Project</th><th>Your role</th><th>Created</th></tr></thead>
@@ -2040,12 +2255,15 @@ function teamBody(
   ${
     isAdmin
       ? `<div class="panel"><div class="panel-head"><span class="panel-title">Accounts</span><span class="panel-note">${users.length} user${users.length === 1 ? "" : "s"} · manage under Settings</span></div>
-    <div class="table-wrap"><table><thead><tr><th>Email</th><th>Role</th><th>Created</th></tr></thead><tbody>${userRows}</tbody></table></div></div>`
+    <div class="table-wrap"><table><thead><tr><th>Email</th><th>Role</th><th>Created</th></tr></thead><tbody>${userRows}</tbody></table></div></div>
+    <div class="panel" style="margin-top:16px"><div class="panel-head"><span class="panel-title">All projects (admin)</span><span class="panel-note">every project on this instance · spend month to date</span></div>
+    <div class="table-wrap"><table><thead><tr><th>Project</th><th>Owner</th><th class="num">Members</th><th class="num">Runs (month)</th><th class="num">Spend (month)</th><th class="num">Budget</th><th class="num">Hard cap</th></tr></thead>
+    <tbody>${adminProjectRows || `<tr><td colspan="7" class="panel-note" style="padding:14px">No projects yet.</td></tr>`}</tbody></table></div></div>`
       : ""
   }`;
 }
 
-function dashboardBody(stats: DashboardStats, range = 14, judgeAllowed = false): string {
+function dashboardBody(stats: DashboardStats, range = 14, judgeAllowed = false, projectName: string | null = null): string {
   const errorRate = stats.totalRuns > 0 ? (stats.errorCount / stats.totalRuns) * 100 : 0;
   const prev = stats.previous;
   const suffix = ` vs previous ${range}d`;
@@ -2063,7 +2281,7 @@ function dashboardBody(stats: DashboardStats, range = 14, judgeAllowed = false):
     : null;
 
   const header = `<div class="page-head">
-    <div><h1>Dashboard</h1><p class="page-sub">Last ${range} days · all projects</p></div>
+    <div><h1>Dashboard</h1><p class="page-sub">Last ${range} days · ${projectName ? `project ${escapeHtml(projectName)}` : "all projects"}</p></div>
     <div class="head-actions">
       <span class="db-live" id="liveDot"><span class="db-live-dot"></span>Live</span>
       <a class="btn btn-ghost" href="/ui/analytics">Open Analytics</a>
@@ -2338,15 +2556,20 @@ interface RunsView {
   eventStats: Map<string, RunEventStats>;
   childCounts: Map<string, number>;
   projects: ProjectAccess[];
+  groups?: TraceGroup[];
+  groupTotal?: number;
+  groupPage?: number;
+  groupLimit?: number;
 }
 
 function runsListBody(runs: Run[], total: number, filters: RunListFilters, offset = 0, limit = 50, stats?: DashboardStats, view?: RunsView): string {
   const group = view?.group ?? "none";
   const chip = (label: string, href: string, active: boolean) =>
     `<a class="${active ? "active" : ""}" href="${href}">${escapeHtml(label)}</a>`;
-  const buildHref = (patch: Partial<RunListFilters> & { offset?: number }): string => {
+  const buildHref = (patch: Partial<RunListFilters> & { offset?: number; gpage?: number }): string => {
     const merged = { ...filters, offset: patch.offset ?? 0, ...patch };
     const params = new URLSearchParams();
+    if (merged.gpage) params.set("gpage", String(merged.gpage));
     if (merged.score) params.set("score", merged.score);
     if (merged.source) params.set("source", merged.source);
     if (merged.model) params.set("model", merged.model);
@@ -2359,7 +2582,7 @@ function runsListBody(runs: Run[], total: number, filters: RunListFilters, offse
     if (merged.agent) params.set("agent", merged.agent);
     if (merged.anomaly) params.set("anomaly", "1");
     if (merged.group && merged.group !== "none") params.set("group", merged.group);
-    if (merged.project) params.set("project", merged.project);
+    if (merged.project !== undefined) params.set("project", merged.project);
     if (merged.sort) params.set("sort", merged.sort);
     if (merged.dir) params.set("dir", merged.dir);
     if (merged.offset) params.set("offset", String(merged.offset));
@@ -2416,7 +2639,7 @@ function runsListBody(runs: Run[], total: number, filters: RunListFilters, offse
       view && view.projects.length > 1
         ? `<div class="filter-tabs">
       <span style="font-family:var(--mono);font-size:10px;color:var(--text-3);margin-right:2px">Project</span>
-      ${chip("All projects", buildHref({ project: undefined }), !filters.project)}
+      ${chip("All projects", buildHref({ project: "" }), !filters.project)}
       ${view.projects
         .map((entry) => chip(entry.project.name, buildHref({ project: entry.project.id }), filters.project === entry.project.id))
         .join("")}
@@ -2436,7 +2659,7 @@ function runsListBody(runs: Run[], total: number, filters: RunListFilters, offse
     </form>
   </div>`;
   const head = `<div class="page-head">
-    <div><h1>Runs</h1><p class="page-sub">${total.toLocaleString()} run${total === 1 ? "" : "s"} matched${filters.agent ? ` · agent ${escapeHtml(filters.agent)}` : ""} · showing ${runs.length ? `${offset + 1}–${offset + runs.length}` : "0"}${group !== "none" ? ` · grouped by ${group}` : ""}</p></div>
+    <div><h1>Runs</h1><p class="page-sub">${total.toLocaleString()} run${total === 1 ? "" : "s"} matched${filters.agent ? ` · agent ${escapeHtml(filters.agent)}` : ""}${group !== "none" ? ` · grouped by ${group}` : ` · showing ${runs.length ? `${offset + 1}–${offset + runs.length}` : "0"}`}</p></div>
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
       <span class="panel-note" style="font-family:var(--mono);font-size:10px">Export</span>
       <button class="btn btn-ghost" type="button" onclick="exportRuns('csv')">CSV</button>
@@ -2549,7 +2772,33 @@ function runsListBody(runs: Run[], total: number, filters: RunListFilters, offse
     </tr>`;
   };
   let tableBody: string;
-  if (group !== "none" && view) {
+  if (group !== "none" && view?.groups) {
+    const keyOf = (r: Run) => (group === "session" ? r.session_id : r.trace_id) ?? "";
+    const kind = group === "session" ? "sessions" : "traces";
+    tableBody = view.groups
+      .map((entry) => {
+        const members = runs
+          .filter((r) => keyOf(r) === entry.id)
+          .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
+        const spanMs = Math.max(0, (Date.parse(entry.lastAt) || 0) - (Date.parse(entry.firstAt) || 0));
+        const errors = entry.errorCount
+          ? `<span class="badge bad"><span class="dot"></span>${entry.errorCount} error${entry.errorCount === 1 ? "" : "s"}</span>`
+          : "";
+        const header = `<tr class="group-row"><td colspan="11"><div class="group-head-row">
+          <span class="group-kind">${group}</span>
+          ${entry.id ? `<a class="group-id" href="/ui/${kind}/${encodeURIComponent(entry.id)}">${escapeHtml(truncate(entry.id, 44))}</a>` : `<span class="group-id">(no ${group} id)</span>`}
+          <span class="chip">${entry.runs} run${entry.runs === 1 ? "" : "s"}</span>
+          <span class="chip">${entry.agents.length} agent${entry.agents.length === 1 ? "" : "s"}</span>
+          <span class="chip">${entry.subagents} subagent${entry.subagents === 1 ? "" : "s"}</span>
+          <span class="chip">${fmtUsd(entry.cost)}</span>
+          <span class="chip">${fmtTokens(entry.tokens || null)} tokens</span>
+          ${errors}
+          ${spanMs ? `<span class="chip">${fmtMs(spanMs)} span</span>` : ""}
+        </div></td></tr>`;
+        return header + members.map((r) => runRow(r, true)).join("");
+      })
+      .join("");
+  } else if (group !== "none" && view) {
     const keyOf = (r: Run) => (group === "session" ? r.session_id : r.trace_id) ?? "";
     const buckets = new Map<string, Run[]>();
     for (const r of runs) {
@@ -2589,9 +2838,23 @@ function runsListBody(runs: Run[], total: number, filters: RunListFilters, offse
   } else {
     tableBody = runs.map((r) => runRow(r, false)).join("");
   }
+  const groupedPaging = group !== "none" && view?.groups !== undefined;
+  const groupPageIndex = view?.groupPage ?? 0;
+  const groupPageSize = view?.groupLimit ?? 10;
+  const groupTotal = view?.groupTotal ?? 0;
+  const shownGroups = view?.groups?.length ?? 0;
   const hasPrev = offset > 0;
   const hasNext = offset + runs.length < total;
-  const pager = `<div class="pager">
+  const pager = groupedPaging
+    ? `<div class="pager">
+    <span>Groups <b>${shownGroups ? groupPageIndex * groupPageSize + 1 : 0}–${groupPageIndex * groupPageSize + shownGroups}</b> of <b>${groupTotal.toLocaleString()}</b> · showing <b>${runs.length.toLocaleString()}</b> run${runs.length === 1 ? "" : "s"}</span>
+    <div class="pager-links">
+      ${groupPageIndex > 0 ? `<a href="${buildHref({ gpage: groupPageIndex - 1 })}">← Prev</a>` : `<span>← Prev</span>`}
+      <a href="${buildHref({})}">Top</a>
+      ${groupPageIndex * groupPageSize + shownGroups < groupTotal ? `<a href="${buildHref({ gpage: groupPageIndex + 1 })}">Next →</a>` : `<span>Next →</span>`}
+    </div>
+  </div>`
+    : `<div class="pager">
     <span>Showing <b>${offset + 1}–${offset + runs.length}</b> of <b>${total.toLocaleString()}</b></span>
     <div class="pager-links">
       ${hasPrev ? `<a href="${buildHref({ offset: Math.max(0, offset - limit) })}">← Prev</a>` : `<span>← Prev</span>`}
@@ -2750,7 +3013,7 @@ ORDER BY cost DESC</textarea>
   </script>`;
 }
 
-function insightsBody(report: InsightsReport, savings: SavingsReport): string {
+function insightsBody(report: InsightsReport, savings: SavingsReport, projectName: string | null = null): string {
   const highlights = report.highlights.map((line) => `<li>${escapeHtml(line)}</li>`).join("");
   const cachingRows = report.caching.repeatedGroups.length
     ? report.caching.repeatedGroups
@@ -2829,7 +3092,7 @@ function insightsBody(report: InsightsReport, savings: SavingsReport): string {
   .in-mo{font-size:12px;color:var(--text-3);font-weight:500;margin-left:2px}
   </style>
   <div class="page-head">
-    <div><h1>Insights</h1><p class="page-sub">Automatic read on the last ${report.windowDays} days: cost, errors, agents, MCP, caching headroom and SLM savings. Generated <b>${escapeHtml(relTime(report.generatedAt))}</b>${report.generatedWith === "judge" ? ` by the judge LLM (${fmtUsd(report.judgeCostUsd)} judge cost)` : " from rules"}.</p></div>
+    <div><h1>Insights</h1><p class="page-sub">${projectName ? `Project ${escapeHtml(projectName)} · ` : ""}Automatic read on the last ${report.windowDays} days: cost, errors, agents, MCP, caching headroom and SLM savings. Generated <b>${escapeHtml(relTime(report.generatedAt))}</b>${report.generatedWith === "judge" ? ` by the judge LLM (${fmtUsd(report.judgeCostUsd)} judge cost)` : " from rules"}.</p></div>
     <div class="head-actions"><button class="btn btn-primary" id="ins-generate" type="button">Generate now</button></div>
   </div>
   <div class="in-cards">
@@ -2943,6 +3206,8 @@ function analyticsBody(
   agents: AnalyticsRow[],
   endUsers: AnalyticsRow[],
   tools: AnalyticsRow[],
+  byProject: AnalyticsRow[],
+  projectNames: Map<string, string>,
   range: number,
   projectId: string | null,
   projectName: string | null,
@@ -2960,25 +3225,26 @@ function analyticsBody(
     <a class="stat-tile" href="/ui/runs?sort=tokens&dir=desc"><span class="st-label">Tokens</span><div class="st-value">${fmtTokens(stats.totalTokens || null)}</div><div class="st-sub">avg ${stats.totalRuns ? Math.round(stats.totalTokens / stats.totalRuns).toLocaleString() : 0} / run</div></a>
     <a class="stat-tile" href="/ui/runs?sort=score&dir=desc"><span class="st-label">Mean score</span><div class="st-value">${stats.avgScore == null ? "-" : stats.avgScore.toFixed(3)}</div><div class="st-sub">${stats.scoredCount.toLocaleString()} scored</div></a>
   </div>`;
-  const rowCells = (row: AnalyticsRow, link?: (row: AnalyticsRow) => string): string => {
-    const key = row.key || "-";
+  const rowCells = (row: AnalyticsRow, link?: (row: AnalyticsRow) => string, label?: (row: AnalyticsRow) => string): string => {
+    const key = (label ? label(row) : row.key) || "-";
     const first = link ? `<a href="${link(row)}">${escapeHtml(key)}</a>` : escapeHtml(key);
     return `<td class="mono">${first}</td><td class="num">${row.runs.toLocaleString()}</td><td class="num">${fmtTokens(row.tokens || null)}</td><td class="num">${fmtUsd(row.cost)}</td><td class="num">${row.tokens > 0 ? fmtUsd((row.cost / row.tokens) * 1000) : "-"}</td><td class="num">${row.runs > 0 ? `${((row.errorCount / row.runs) * 100).toFixed(1)}%` : "-"}</td><td class="num">${fmtMs(row.avgLatencyMs)}</td><td class="num">${row.avgScore == null ? "-" : row.avgScore.toFixed(2)}</td>`;
   };
-  const table = (title: string, note: string, rows: AnalyticsRow[], firstHeader: string, link?: (row: AnalyticsRow) => string): string =>
+  const table = (title: string, note: string, rows: AnalyticsRow[], firstHeader: string, link?: (row: AnalyticsRow) => string, label?: (row: AnalyticsRow) => string): string =>
     `<div class="panel" style="margin-bottom:18px"><div class="panel-head"><span class="panel-title">${escapeHtml(title)}</span><span class="panel-note">${escapeHtml(note)}</span></div>
     <div class="table-wrap"><table>
       <thead><tr><th>${escapeHtml(firstHeader)}</th><th class="num">Runs</th><th class="num">Tokens</th><th class="num">Cost</th><th class="num">Cost / 1k</th><th class="num">Errors</th><th class="num">Avg latency</th><th class="num">Avg score</th></tr></thead>
-      <tbody>${rows.length ? rows.map((row) => `<tr>${rowCells(row, link)}</tr>`).join("") : `<tr><td colspan="8" class="panel-note" style="padding:14px">No data in this window.</td></tr>`}</tbody>
+      <tbody>${rows.length ? rows.map((row) => `<tr>${rowCells(row, link, label)}</tr>`).join("") : `<tr><td colspan="8" class="panel-note" style="padding:14px">No data in this window.</td></tr>`}</tbody>
     </table></div></div>`;
   return `<div class="page-head">
-    <div><h1>Analytics</h1><p class="page-sub">Last ${range} days${projectName ? ` · project ${escapeHtml(projectName)}` : " · all projects"} · deep breakdowns: models, agents and end users</p></div>
+    <div><h1>Analytics</h1><p class="page-sub">Last ${range} days${projectName ? ` · project ${escapeHtml(projectName)}` : " · all projects"} · deep breakdowns: models, agents, end users and projects</p></div>
     <div class="head-actions"><a class="btn btn-ghost" href="/ui/dashboard">Dashboard home</a><span class="range">${rangeBadges}</span></div>
   </div>
   ${tiles}
   ${table("Model leaderboard", "per-model spend, efficiency and quality for the window", models, "Model", (row) => `/ui/runs?model=${encodeURIComponent(row.key)}`)}
   ${table("Cost by agent", "agent_name / agent_id from every ingestion path", agents, "Agent", (row) => `/ui/runs?agent=${encodeURIComponent(row.key)}`)}
   ${table("Cost by end user", "x-torrix-user-id or record.end_user_id", endUsers, "End user", (row) => `/ui/runs?end_user=${encodeURIComponent(row.key)}`)}
+  ${table("Cost by project", "project_id from proxy, SDK, ingest and OTLP runs", byProject, "Project", (row) => `/ui/runs?project=${encodeURIComponent(row.key)}`, (row) => projectNames.get(row.key) ?? row.key)}
   ${table("MCP tools", "tool calls from /mcp, /mcp/proxy and the governed gateway", tools, "Tool", (row) => `/ui/runs?q=${encodeURIComponent(row.key)}`)}
   <div class="db-cols">
     <div>${donutPanel(stats.bySource)}</div>
@@ -3895,9 +4161,14 @@ interface CostPageData {
   prices: PricingOverride[];
   projectSpend: Record<string, number>;
   keySpend: Record<string, number>;
+  selected: Project | null;
+  selectedStats: DashboardStats | null;
 }
 
 const COST_STYLE = `
+.co-scope{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 0}
+.co-scope label{font-size:11.5px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em}
+.co-scope select{background:var(--surface);border:1px solid var(--line);color:var(--text);border-radius:var(--r);padding:7px 10px;font-size:13px;font-family:inherit;min-width:200px}
 .co-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
 .co-head h1{font-size:22px;letter-spacing:-.03em;margin:0;font-weight:580}
 .co-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:20px 0}
@@ -3944,11 +4215,34 @@ function costPageBody(data: CostPageData): string {
   if (settings.email_webhook_url && (settings.email_recipients ?? "").trim()) channelLabels.push("email");
   const channelSummary = channelLabels.length ? channelLabels.join(" + ") : "no channels configured";
 
-  const usageRows = [
-    usageRow("user", null, "Account (all projects)", data.userSpend, settings.budget_usd, settings.hard_cap_usd),
-    ...data.projects.map((p) => usageRow("project", p.id, escapeHtml(p.name), data.projectSpend[p.id] ?? 0, p.budget_usd ?? null, p.hard_cap_usd ?? null, p.prompt_compression ?? "off", p.compression_words ?? "")),
-    ...data.keys.map((k) => usageRow("api_key", k.id, escapeHtml(k.name), data.keySpend[k.id] ?? 0, k.budget_usd ?? null, k.hard_cap_usd ?? null)),
-  ].join("");
+  const selected = data.selected;
+  const selectedSpend = selected ? data.projectSpend[selected.id] ?? 0 : 0;
+  const scopedKeyRows = selected
+    ? data.keys
+        .filter((key) => {
+          const scope = safeJsonArray(key.projects).map((value) => String(value));
+          return scope.length === 0 || scope.includes(selected.id);
+        })
+        .map((key) => usageRow("api_key", key.id, escapeHtml(key.name), data.keySpend[key.id] ?? 0, key.budget_usd ?? null, key.hard_cap_usd ?? null))
+    : [];
+  const usageRows = selected
+    ? [
+        usageRow("project", selected.id, escapeHtml(selected.name), selectedSpend, selected.budget_usd ?? null, selected.hard_cap_usd ?? null, selected.prompt_compression ?? "off", selected.compression_words ?? ""),
+        ...scopedKeyRows,
+      ].join("")
+    : [
+        usageRow("user", null, "Account (all projects)", data.userSpend, settings.budget_usd, settings.hard_cap_usd),
+        ...data.projects.map((p) => usageRow("project", p.id, escapeHtml(p.name), data.projectSpend[p.id] ?? 0, p.budget_usd ?? null, p.hard_cap_usd ?? null, p.prompt_compression ?? "off", p.compression_words ?? "")),
+        ...data.keys.map((k) => usageRow("api_key", k.id, escapeHtml(k.name), data.keySpend[k.id] ?? 0, k.budget_usd ?? null, k.hard_cap_usd ?? null)),
+      ].join("");
+  const scopeBar = `<div class="co-scope">
+    <label for="co-project">View</label>
+    <select id="co-project" onchange="if(this.value)location.href=this.value">
+      <option value="/ui/cost"${selected ? "" : " selected"}>All projects</option>
+      ${data.projects.map((p) => `<option value="/ui/cost?project=${encodeURIComponent(p.id)}"${selected?.id === p.id ? " selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
+    </select>
+    <span class="panel-note">${selected ? `scoped to ${escapeHtml(selected.name)}: month spend, limits and keys for this project` : "every project on this account in one table"}</span>
+  </div>`;
 
   const priceRows = data.prices
     .map(
@@ -3965,20 +4259,22 @@ function costPageBody(data: CostPageData): string {
     <div><h1>Cost &amp; Alerts</h1><p class="page-sub">Budgets, hard caps, alert channels and custom pricing: month shown starts at UTC month start</p></div>
     <button class="btn btn-ghost" id="digBtn">Send weekly digest now</button>
   </div>
+  ${scopeBar}
 
-  <div class="co-cards">
-    <div class="co-card"><label>Monthly spend</label><b class="tnum">${fmt(data.userSpend)}</b><div class="sub">across all projects</div></div>
-    <div class="co-card"><label>Budget</label><b class="tnum">${fmt(settings.budget_usd)}</b>
-      <div class="co-bar"><span class="${spendingClass(data.userSpend, settings.budget_usd)}" style="width:${barPct(data.userSpend, settings.budget_usd)}%"></span></div>
-      <div class="sub">alerts fire at 50 / 80 / 100%</div></div>
-    <div class="co-card"><label>Hard cap</label><b class="tnum">${fmt(settings.hard_cap_usd)}</b>
-      <div class="co-bar"><span class="${spendingClass(data.userSpend, settings.hard_cap_usd)}" style="width:${barPct(data.userSpend, settings.hard_cap_usd)}%"></span></div>
+  <div class="co-cards" style="margin-top:14px">
+    <div class="co-card"><label>Monthly spend</label><b class="tnum">${fmt(selected ? selectedSpend : data.userSpend)}</b><div class="sub">${selected ? `in ${escapeHtml(selected.name)}${data.selectedStats ? ` · ${data.selectedStats.totalRuns.toLocaleString()} run${data.selectedStats.totalRuns === 1 ? "" : "s"}` : ""}` : "across all projects"}</div></div>
+    <div class="co-card"><label>Budget</label><b class="tnum">${fmt(selected ? selected.budget_usd ?? null : settings.budget_usd)}</b>
+      <div class="co-bar"><span class="${spendingClass(selected ? selectedSpend : data.userSpend, selected ? selected.budget_usd ?? null : settings.budget_usd)}" style="width:${barPct(selected ? selectedSpend : data.userSpend, selected ? selected.budget_usd ?? null : settings.budget_usd)}%"></span></div>
+      <div class="sub">${selected ? "project budget" : "alerts fire at 50 / 80 / 100%"}</div></div>
+    <div class="co-card"><label>Hard cap</label><b class="tnum">${fmt(selected ? selected.hard_cap_usd ?? null : settings.hard_cap_usd)}</b>
+      <div class="co-bar"><span class="${spendingClass(selected ? selectedSpend : data.userSpend, selected ? selected.hard_cap_usd ?? null : settings.hard_cap_usd)}" style="width:${barPct(selected ? selectedSpend : data.userSpend, selected ? selected.hard_cap_usd ?? null : settings.hard_cap_usd)}%"></span></div>
       <div class="sub">requests blocked once reached</div></div>
-    <div class="co-card"><label>Alerting</label><b>${statusBadge}</b><div class="sub">${channelSummary}</div></div>
+    <div class="co-card"><label>Alerting</label><b>${statusBadge}</b><div class="sub">${selected ? "alerts are account-wide" : channelSummary}</div></div>
   </div>
+  ${selected ? `<div style="display:flex;gap:8px;margin-top:12px"><a class="btn btn-ghost" href="/ui/runs?project=${encodeURIComponent(selected.id)}">Open runs</a><a class="btn btn-ghost" href="/ui/analytics?project=${encodeURIComponent(selected.id)}">Open analytics</a></div>` : ""}
 
   <div class="panel">
-    <div class="panel-head"><span class="panel-title">Spend &amp; limits</span><span class="panel-note">per scope: month to date</span></div>
+    <div class="panel-head"><span class="panel-title">Spend &amp; limits</span><span class="panel-note">${selected ? `${escapeHtml(selected.name)} · month to date` : "per scope: month to date"}</span></div>
     <div style="padding:6px 18px 18px;overflow:auto">
       <table class="co-usage">
         <thead><tr><th>Scope</th><th>Spend</th><th>Budget $</th><th>Hard cap $</th><th></th></tr></thead>
@@ -5005,7 +5301,15 @@ function playgroundBody(): string {
 </script>`;
 }
 
-function runDetailBody(run: Run, events: Events[], children: Run[] = [], judgeSlot = ""): string {
+interface RunNav {
+  parents: Run[];
+  prev: Run | null;
+  next: Run | null;
+  position: number;
+  total: number;
+}
+
+function runDetailBody(run: Run, events: Events[], children: Run[] = [], judgeSlot = "", nav: RunNav | null = null): string {
   const totalTokens = (run.input_tokens ?? 0) + (run.output_tokens ?? 0);
   const retrievalDocs = safeJsonArray(run.retrieval_docs);
   const mediaAssets = safeJsonArray(run.media_assets);
@@ -5313,8 +5617,26 @@ function runDetailBody(run: Run, events: Events[], children: Run[] = [], judgeSl
       </table></div></div>`
     : "";
 
+  const breadcrumb = nav
+    ? `<div class="rd-breadcrumb">
+        <a href="/ui/runs">Runs</a>
+        ${nav.parents.map((parent) => `<span class="rd-crumb-sep">/</span><a href="/ui/runs/${encodeURIComponent(parent.id)}" title="${escapeHtml(parent.name ?? parent.agent_name ?? parent.id)}">${escapeHtml(truncate(parent.name ?? parent.agent_name ?? parent.id, 28))}</a>`).join("")}
+        <span class="rd-crumb-sep">/</span><span class="rd-crumb-current">${escapeHtml(truncate(run.name ?? run.id, 32))}</span>
+        ${
+          nav.total > 1 && nav.position > 0
+            ? `<span class="rd-stepper">
+          ${nav.prev ? `<a class="btn btn-ghost" href="/ui/runs/${encodeURIComponent(nav.prev.id)}" title="${escapeHtml(nav.prev.name ?? nav.prev.id)}">← Previous</a>` : ""}
+          <span class="panel-note">${nav.position} of ${nav.total} in ${run.trace_id ? "trace" : "session"}</span>
+          ${nav.next ? `<a class="btn btn-ghost" href="/ui/runs/${encodeURIComponent(nav.next.id)}" title="${escapeHtml(nav.next.name ?? nav.next.id)}">Next →</a>` : ""}
+        </span>`
+            : ""
+        }
+      </div>`
+    : "";
+
   return `<div>
     ${backLink("/ui/runs", "All runs")}
+    ${breadcrumb}
     <div class="run-head">
       <div style="flex:1;min-width:220px">
         <h1 class="rh-title">${escapeHtml(run.name || run.model || "Run detail")}</h1>
@@ -5568,43 +5890,101 @@ function autoRefreshScript(): string {
 })();</script>`;
 }
 
-function tracesIndexBody(sessions: TraceGroup[], traces: TraceGroup[]): string {
+const TRACES_STYLE = `
+.trace-filters{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 16px}
+.trace-filters input[type="search"]{background:var(--surface);border:1px solid var(--line);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px;min-width:260px;font-family:inherit}
+.trace-filters input[type="search"]:focus{outline:none;border-color:var(--accent)}
+.tf-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2);cursor:pointer}
+.tf-toggle input{accent-color:var(--accent)}
+.filter-empty td{padding:14px 12px;color:var(--text-3);font-size:13px}
+`;
+
+function tracesFilterScript(): string {
+  return `<script>(function(){
+  var search=document.getElementById("trace-search");
+  var errors=document.getElementById("trace-errors");
+  var hideSingle=document.getElementById("trace-hide-single");
+  if(!search||!errors||!hideSingle)return;
+  var KEY="torrix_traces_hide_single";
+  try{hideSingle.checked=(localStorage.getItem(KEY)||"1")==="1"}catch(e){}
+  function apply(){
+    var q=(search.value||"").trim().toLowerCase(),onlyErrors=errors.checked,hide=hideSingle.checked,hidden=0,shown=0;
+    Array.prototype.slice.call(document.querySelectorAll("tr.trace-row")).forEach(function(row){
+      var ok=true;
+      if(hide&&row.getAttribute("data-runs")==="1")ok=false;
+      if(ok&&onlyErrors&&Number(row.getAttribute("data-errors")||0)===0)ok=false;
+      if(ok&&q&&(row.getAttribute("data-search")||"").indexOf(q)<0)ok=false;
+      row.style.display=ok?"":"none";
+      if(ok)shown+=1;else hidden+=1;
+    });
+    var note=document.getElementById("trace-filter-note");
+    if(note)note.textContent=hidden?(hidden+" hidden"):(shown?shown+" shown":"nothing matches");
+    Array.prototype.slice.call(document.querySelectorAll("[data-trace-panel]")).forEach(function(panel){
+      var all=panel.querySelectorAll("tr.trace-row").length,visible=0;
+      Array.prototype.slice.call(panel.querySelectorAll("tr.trace-row")).forEach(function(row){if(row.style.display!=="none")visible+=1});
+      var empty=panel.querySelector("tr.filter-empty");
+      if(empty)empty.style.display=(all>0&&visible===0)?"":"none";
+    });
+  }
+  search.addEventListener("input",apply);
+  errors.addEventListener("change",apply);
+  hideSingle.addEventListener("change",function(){try{localStorage.setItem(KEY,hideSingle.checked?"1":"0")}catch(e){}apply()});
+  apply();
+})();</script>`;
+}
+
+function tracesIndexBody(sessions: TraceGroup[], traces: TraceGroup[], roots: Map<string, GroupRoot>, projectName: string | null = null): string {
   const panel = (title: string, kind: "trace" | "session", groups: TraceGroup[], note: string): string => {
     const rows = groups
-      .map(
-        (g) => `<tr class="clickable" onclick="location.href='/ui/${kind}s/${encodeURIComponent(g.id)}'">
+      .map((g) => {
+        const root = roots.get(g.id);
+        const prompt = extractUserPrompt(root?.requestBody ?? null);
+        const spanMs = Math.max(0, (Date.parse(g.lastAt) || 0) - (Date.parse(g.firstAt) || 0));
+        const search = [g.id, root?.agentName ?? "", ...g.agents, prompt ?? ""].join(" ").toLowerCase().slice(0, 320);
+        return `<tr class="clickable trace-row" data-runs="${g.runs}" data-errors="${g.errorCount}" data-search="${escapeHtml(search)}" onclick="location.href='/ui/${kind}s/${encodeURIComponent(g.id)}'">
         <td class="mono" style="color:var(--text-3);font-size:12px">${relTime(g.lastAt)}</td>
-        <td><span class="tcell-primary mono" style="font-size:11.5px">${escapeHtml(truncate(g.id, 34))}</span><span class="tcell-sub">${g.models.slice(0, 2).map((m) => escapeHtml(m)).join(", ")}${g.models.length > 2 ? ` +${g.models.length - 2}` : ""}</span></td>
+        <td><span class="tcell-primary mono" style="font-size:11.5px">${escapeHtml(truncate(g.id, 34))}</span>
+          ${prompt ? `<span class="tcell-sub">${escapeHtml(truncate(prompt.trim(), 90))}</span>` : ""}
+          <span class="tcell-sub">${g.models.slice(0, 2).map((m) => escapeHtml(m)).join(", ")}${g.models.length > 2 ? ` +${g.models.length - 2}` : ""}</span></td>
+        <td>${root?.agentName ? treeAgentChip(root.agentName) : '<span class="badge neutral">-</span>'}</td>
         <td>${g.agents.length ? g.agents.slice(0, 3).map((a) => `<span class="chip">${escapeHtml(a)}</span>`).join(" ") : '<span class="badge neutral">-</span>'}</td>
         <td class="num">${g.runs}</td>
         <td class="num">${g.subagents || 0}</td>
+        <td class="num mono">${spanMs ? fmtMs(spanMs) : "-"}</td>
         <td class="num">${fmtUsd(g.cost)}</td>
         <td class="num">${g.errorCount ? `<span class="badge bad"><span class="dot"></span>${g.errorCount}</span>` : "0"}</td>
-      </tr>`,
-      )
+      </tr>`;
+      })
       .join("");
-    return `<div class="panel" style="margin-bottom:18px"><div class="panel-head"><span class="panel-title">${title}</span><span class="panel-note">${note}</span></div>
+    return `<div class="panel" style="margin-bottom:18px" data-trace-panel><div class="panel-head"><span class="panel-title">${title}</span><span class="panel-note">${note}</span></div>
       ${
         groups.length
           ? `<div class="table-wrap"><table>
-              <thead><tr><th>Last activity</th><th>${kind === "session" ? "Session" : "Trace"}</th><th>Agents</th><th class="num">Runs</th><th class="num">Subagents</th><th class="num">Cost</th><th class="num">Errors</th></tr></thead>
-              <tbody>${rows}</tbody>
+              <thead><tr><th>Last activity</th><th>${kind === "session" ? "Session" : "Trace"}</th><th>Root agent</th><th>Agents</th><th class="num">Runs</th><th class="num">Subagents</th><th class="num">Duration</th><th class="num">Cost</th><th class="num">Errors</th></tr></thead>
+              <tbody>${rows}<tr class="filter-empty" style="display:none"><td colspan="9">No rows match the filter.</td></tr></tbody>
             </table></div>`
           : emptyState(`No ${kind}s yet`, `Runs grouped by their ${kind === "session" ? "session" : "trace"} id will appear here.`)
       }</div>`;
   };
-  return `<div class="page-head">
-    <div><h1>Traces</h1><p class="page-sub">Sessions group a whole conversation; traces follow one agent execution, including the subagent runs it spawns.</p></div>
+  return `<style>${TRACES_STYLE}</style><div class="page-head">
+    <div><h1>Traces</h1><p class="page-sub">${projectName ? `Project ${escapeHtml(projectName)} · ` : ""}Sessions group a whole conversation; traces follow one agent execution, including the subagent runs it spawns.</p></div>
     ${refreshControls()}
   </div>
+  <div class="trace-filters">
+    <input id="trace-search" type="search" placeholder="Filter by trace id, agent or prompt" autocomplete="off" aria-label="Filter groups">
+    <label class="tf-toggle"><input type="checkbox" id="trace-errors"> errors only</label>
+    <label class="tf-toggle"><input type="checkbox" id="trace-hide-single" checked> hide single-run</label>
+    <span class="panel-note" id="trace-filter-note"></span>
+  </div>
   ${panel("Sessions", "session", sessions, "grouped by session_id")}
-  ${panel("Traces", "trace", traces, "grouped by trace_id")}${autoRefreshScript()}`;
+  ${panel("Traces", "trace", traces, "grouped by trace_id")}${tracesFilterScript()}${autoRefreshScript()}`;
 }
 
 const FLOW_STYLE = `
 .tcell-err{color:var(--bad)}
 .turn-summary{margin-bottom:14px}
 .turn-prompt{margin:4px 0 8px;font-size:14px;line-height:1.55;color:var(--text);white-space:pre-wrap}
+.turn-answer{margin:4px 0 8px;font-size:13.5px;line-height:1.55;color:var(--text-2);white-space:pre-wrap}
 .turn-facts{margin:0}
 .turn-error{margin:8px 0 0;font-size:13px;color:var(--bad)}
 .turn-error a{color:var(--bad);text-decoration:underline}
@@ -5628,6 +6008,43 @@ const FLOW_STYLE = `
 .flow-badge:hover{stroke:var(--accent)}
 .flow-badge-txt{fill:var(--text-2);font:10px var(--mono);pointer-events:none}
 .flow-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--line-2);border-radius:6px;padding:7px 9px;font-size:12px;line-height:1.5;color:var(--text-2);box-shadow:var(--shadow-sm);display:none;max-width:280px}
+.authz-row{background:var(--wash)}
+.authz-row:hover{background:var(--surface-2)}
+.authz-cell{display:flex;align-items:flex-start;gap:9px}
+.authz-mark{width:8px;height:8px;transform:rotate(45deg);flex:none;margin-top:6px;background:var(--text-3)}
+.authz-mark.ok{background:var(--good)}
+.authz-mark.bad{background:var(--bad)}
+.authz-mark.hold{background:var(--warn)}
+.authz-title{font-size:12.5px;color:var(--text-2);font-weight:600}
+.authz-sub{display:block;color:var(--text-3);font-size:12px;margin-top:2px}
+.authz-sub a{color:var(--accent);text-decoration:none}
+.authz-sub a:hover{text-decoration:underline}
+.flow-decision{cursor:pointer}
+.flow-decision path{stroke-width:1.2;transition:filter .12s}
+.flow-decision:hover path{filter:brightness(1.15)}
+.flow-decision.ok path{fill:var(--good);stroke:var(--surface)}
+.flow-decision.bad path{fill:var(--bad);stroke:var(--surface)}
+.flow-decision.hold path{fill:var(--warn);stroke:var(--surface)}
+.flow-wait{stroke:var(--warn-line);stroke-dasharray:3 3}
+.flow-tools{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+.flow-tools .btn{padding:5px 9px;font-size:12px}
+.flow-tools label{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text-2);cursor:pointer}
+.flow-tools input{accent-color:var(--accent)}
+.flow-tool{cursor:pointer}
+.flow-tool path{fill:var(--info);stroke:var(--surface);stroke-width:1}
+.flow-tool:hover path{filter:brightness(1.15)}
+.flow-gap{opacity:.7}
+.ev-toggle{background:transparent;border:1px solid var(--line);border-radius:4px;color:var(--text-3);font:10px var(--mono);line-height:1;padding:2px 4px;cursor:pointer;margin-right:5px;flex:none}
+.ev-toggle:hover{border-color:var(--accent);color:var(--accent)}
+.ev-toggle[data-expanded="1"]{color:var(--accent);border-color:var(--accent-line)}
+.ev-row{background:var(--surface-2)}
+.ev-row td{vertical-align:top}
+.ev-kind{font-family:var(--mono);font-size:10.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px}
+.ev-mark{width:8px;height:8px;flex:none;margin-top:6px;border-radius:2px;background:var(--text-3)}
+.ev-mark.tool{background:var(--info)}
+.ev-mark.think{background:var(--accent-strong)}
+.ev-mark.policy{background:var(--warn)}
+.ev-args{font-family:var(--mono);font-size:11.5px;color:var(--text-3);word-break:break-word}
 `;
 
 interface GroupPaging {
@@ -5638,7 +6055,7 @@ interface GroupPaging {
 
 const GUIDE_DEPTH_CAP = 24;
 
-function turnSummaryPanel(runs: Run[], stats: Map<string, { toolCalls: number; hasThinking: boolean }>, window: ReturnType<typeof groupWindowStats>): string {
+function turnSummaryPanel(runs: Run[], stats: Map<string, { toolCalls: number; hasThinking: boolean }>, window: ReturnType<typeof groupWindowStats>, answerText: string | null = null): string {
   const ordered = [...runs].sort((a, b) => runStartMs(a) - runStartMs(b));
   const firstPrompt = ordered.map((run) => extractUserPrompt(run.request_body)).find((text) => Boolean(text && text.trim())) ?? null;
   const toolCalls = runs.reduce((sum, run) => sum + (stats.get(run.id)?.toolCalls ?? 0), 0);
@@ -5654,6 +6071,8 @@ function turnSummaryPanel(runs: Run[], stats: Map<string, { toolCalls: number; h
   return `<div class="panel turn-summary"><div class="panel-body">
     <div class="meta-label">Started with</div>
     <p class="turn-prompt">${firstPrompt ? escapeHtml(truncate(firstPrompt.trim(), 320)) : '<span class="panel-note">No prompt text captured for this turn.</span>'}</p>
+    <div class="meta-label">Answer</div>
+    <p class="turn-answer">${answerText ? escapeHtml(truncate(answerText.trim(), 320)) : '<span class="panel-note">No response text captured for the last call.</span>'}</p>
     <p class="panel-note turn-facts">${facts.map((fact) => escapeHtml(String(fact))).join(" · ")}</p>
     ${
       firstError
@@ -5709,6 +6128,78 @@ function pagingBar(kind: "trace" | "session", id: string, total: number, paging:
   </div>`;
 }
 
+function toolEventName(message: string): string {
+  try {
+    const parsed = JSON.parse(message) as unknown;
+    const item = Array.isArray(parsed) ? parsed[0] : parsed;
+    if (item && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      const fn = record.function && typeof record.function === "object" ? (record.function as Record<string, unknown>) : null;
+      const name = record.name ?? fn?.name;
+      if (typeof name === "string" && name) {
+        return name.slice(0, 40);
+      }
+    }
+  } catch {
+    // fall through to the raw text
+  }
+  return message.replace(/\s+/g, " ").trim().slice(0, 40) || "tool";
+}
+
+function authzTone(status: string | null | undefined): "ok" | "bad" | "hold" {
+  const value = (status ?? "").toLowerCase();
+  if (value === "allow" || value === "allowed" || value === "approved") {
+    return "ok";
+  }
+  if (value === "deny" || value === "denied" || value === "rejected" || value === "expired") {
+    return "bad";
+  }
+  return "hold";
+}
+
+function annotationRow(annotation: TraceAnnotation, guides: string, orphan = false): string {
+  const tone = authzTone(annotation.status);
+  const meta = annotation.meta ?? {};
+  const principal = meta.principal as { display_name?: string | null } | null | undefined;
+  const delegation = meta.delegation as { purpose?: string | null } | null | undefined;
+  const policy = meta.policy as { name?: string | null } | null | undefined;
+  const chips = [
+    annotation.status
+      ? `<span class="badge ${tone === "ok" ? "good" : tone === "bad" ? "bad" : "warn"}">${escapeHtml(annotation.status.replace(/_/g, " "))}</span>`
+      : "",
+    annotation.riskLevel
+      ? `<span class="badge ${annotation.riskLevel === "low" ? "neutral" : annotation.riskLevel === "medium" ? "warn" : "bad"}">risk ${escapeHtml(annotation.riskLevel)}</span>`
+      : "",
+    annotation.approval && annotation.approval.waitMs != null
+      ? `<span class="chip chip-mono">held ${fmtMs(annotation.approval.waitMs)}</span>`
+      : annotation.approval
+        ? `<span class="chip chip-mono">${escapeHtml(annotation.approval.state)}</span>`
+        : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const facts = [
+    principal?.display_name ? `for ${principal.display_name}` : null,
+    delegation?.purpose ? `via ${delegation.purpose} delegation` : null,
+    policy?.name ? `policy ${policy.name}` : null,
+    orphan ? "no run link" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return `<tr class="authz-row" data-run="${escapeHtml(annotation.runId ?? "")}" data-parent="${orphan ? "" : escapeHtml(annotation.runId ?? "")}">
+    <td class="mono" style="color:var(--text-3);font-size:12px"><span title="${escapeHtml(annotation.at)}">${relTime(annotation.at)}</span></td>
+    <td colspan="9"><div class="authz-cell">
+      <span class="tree-guides" aria-hidden="true">${guides}</span>
+      <span class="authz-mark ${tone}" aria-hidden="true"></span>
+      <span class="cell-stack">
+        <span class="cell-inline"><span class="authz-title">${escapeHtml(annotation.title)}</span> ${chips}</span>
+        ${annotation.detail ? `<span class="authz-sub">${escapeHtml(truncate(annotation.detail, 160))}</span>` : ""}
+        ${facts ? `<span class="authz-sub">${escapeHtml(facts)}</span>` : ""}
+      </span>
+    </div></td>
+  </tr>`;
+}
+
 function runGroupBody(
   kind: "trace" | "session",
   id: string,
@@ -5717,6 +6208,9 @@ function runGroupBody(
   eventCounts: RunEventCount[],
   descendantCount: number,
   paging: GroupPaging = { page: 1, pages: 1, pageSize: 200 },
+  annotations: TraceAnnotation[] = [],
+  answerText: string | null = null,
+  toolEvents: RunToolEvent[] = [],
 ): string {
   const label = kind === "trace" ? "Trace" : "Session";
   const stats = runEventStats(eventCounts);
@@ -5742,8 +6236,35 @@ function runGroupBody(
       url: `/ui/runs/${encodeURIComponent(r.id)}`,
     };
   });
-  const flowPayload = JSON.stringify({ runs: flowRuns, total: runs.length, capped: runs.length > flowRuns.length }).replace(/</g, "\\u003c");
+  const flowAnnotations = annotations
+    .filter((annotation) => annotation.runId && runs.some((run) => run.id === annotation.runId))
+    .slice(0, 400)
+    .map((annotation) => ({
+      id: annotation.id,
+      runId: annotation.runId,
+      at: Date.parse(annotation.at) || 0,
+      status: annotation.status ?? null,
+      title: annotation.title,
+      risk: annotation.riskLevel ?? null,
+      waitMs: annotation.approval?.waitMs ?? null,
+      approvalState: annotation.approval?.state ?? null,
+    }));
+  const flowRunIdSet = new Set(flowRuns.map((run) => run.id));
+  const flowTools = toolEvents
+    .filter((event) => flowRunIdSet.has(event.runId))
+    .slice(0, 400)
+    .map((event) => ({ runId: event.runId, at: Date.parse(event.createdAt) || 0, name: toolEventName(event.message) }));
+  const flowPayload = JSON.stringify({ runs: flowRuns, annotations: flowAnnotations, tools: flowTools, total: runs.length, capped: runs.length > flowRuns.length }).replace(/</g, "\\u003c");
   const traceOf = new Map(runs.map((run) => [run.id, run.trace_id ?? null]));
+  const annotationsByRun = new Map<string, TraceAnnotation[]>();
+  for (const annotation of annotations) {
+    if (!annotation.runId) {
+      continue;
+    }
+    annotationsByRun.set(annotation.runId, [...(annotationsByRun.get(annotation.runId) ?? []), annotation]);
+  }
+  const renderedRunIds = new Set(runs.map((run) => run.id));
+  const orphanAnnotations = annotations.filter((annotation) => !annotation.runId || !renderedRunIds.has(annotation.runId));
   const rows = tree.flat
     .map(({ run: r, depth, lastSibling, ancestorLast, orphanParentId, cycleBroken, children, subtree }) => {
       const ev = stats.get(r.id);
@@ -5754,10 +6275,30 @@ function runGroupBody(
         depth === 0
           ? ""
           : `${ancestorLast.length > GUIDE_DEPTH_CAP ? "⋯" : ""}${shownAncestors.map((last) => (last ? " " : "│")).join("")}${lastSibling ? "└" : "├"}`;
+      const childGuides = `${shownAncestors.map((last) => (last ? " " : "│")).join("")}${lastSibling ? " " : "│"}├`;
       // A child is labelled as a subagent trace only when it really sits in a different trace from its parent.
       const parentTrace = r.parent_run_id ? traceOf.get(r.parent_run_id) : undefined;
       const showTrace = Boolean(r.trace_id && parentTrace !== undefined && parentTrace !== r.trace_id);
       const hasChildren = children.length > 0;
+      const policyRows = safeJsonArray(r.policy_flags)
+        .map((flag) => {
+          const name = String(flag.policyName ?? flag.policy ?? flag.name ?? "policy");
+          const stage = flag.stage ? String(flag.stage) : null;
+          const detail = String(flag.detail ?? flag.reason ?? flag.matcher ?? "");
+          const severity = flag.severity ? String(flag.severity) : null;
+          return `<tr class="ev-row policy-row" data-parent="${escapeHtml(r.id)}" data-run="${escapeHtml(r.id)}">
+            <td class="mono" style="color:var(--text-3);font-size:12px"><span title="${escapeHtml(r.created_at)}">${relTime(r.created_at)}</span></td>
+            <td colspan="9"><div class="authz-cell">
+              <span class="tree-guides" aria-hidden="true">${childGuides}</span>
+              <span class="ev-mark policy" aria-hidden="true"></span>
+              <span class="cell-stack">
+                <span class="cell-inline"><span class="ev-kind">policy</span> <span class="authz-title">${escapeHtml(name)}</span>${stage ? ` <span class="chip chip-mono">${escapeHtml(stage)}</span>` : ""}${severity ? ` <span class="badge ${severity === "high" || severity === "critical" ? "bad" : "warn"}">${escapeHtml(severity)}</span>` : ""}</span>
+                ${detail ? `<span class="authz-sub">${escapeHtml(truncate(detail, 160))}</span>` : ""}
+              </span>
+            </div></td>
+          </tr>`;
+        })
+        .join("");
       return `<tr class="clickable${r.status != null && r.status >= 400 ? " row-error" : ""}" data-run="${escapeHtml(r.id)}" data-parent="${escapeHtml(r.parent_run_id ?? "")}" onclick="location.href='/ui/runs/${r.id}'">
         <td class="mono" style="color:var(--text-3);font-size:12px"><span title="${escapeHtml(r.created_at)}">${relTime(r.created_at)}</span></td>
         <td><div class="tree-cell">
@@ -5765,6 +6306,7 @@ function runGroupBody(
           <span class="tree-guides" aria-hidden="true">${guides}</span>
           <span class="cell-stack">
             <span class="cell-inline">
+              ${ev?.toolCalls || thinking ? `<button class="ev-toggle" type="button" data-events="${escapeHtml(r.id)}" title="Show tool calls and reasoning" aria-label="Show tool calls and reasoning">▸</button>` : ""}
               <span class="tcell-primary">${escapeHtml(truncate(r.name ?? "untitled", 52))}</span>
               ${thinking ? '<span class="think-mark" title="Reasoning captured">think</span>' : ""}
             </span>
@@ -5783,9 +6325,9 @@ function runGroupBody(
         <td class="num mono">${fmtMs(r.latency_ms)}</td>
         <td class="num">${fmtUsd(r.cost_usd)}</td>
         <td>${statusBadge(r.status, r.finish_reason)}</td>
-      </tr>`;
+      </tr>${policyRows}${(annotationsByRun.get(r.id) ?? []).map((annotation) => annotationRow(annotation, childGuides)).join("")}`;
     })
-    .join("");
+    .join("") + orphanAnnotations.map((annotation) => annotationRow(annotation, "", true)).join("");
   const head = `<div class="page-head">
     <div><h1>${label}</h1><p class="page-sub mono">${escapeHtml(id)} · ${total.toLocaleString()} run${total === 1 ? "" : "s"}${descendantCount ? ` · ${descendantCount} descendant run${descendantCount === 1 ? "" : "s"}` : ""}</p></div>
     ${refreshControls()}
@@ -5812,7 +6354,13 @@ function runGroupBody(
     <span class="panel-note" id="flow-meta" style="margin-left:8px"></span>
   </div>`;
   const flowPanel = `<div id="view-flow" style="display:none"><div class="panel">
-    <div class="panel-head"><span class="panel-title">Flow</span><span class="panel-note">time runs left to right · agent lanes wrap into lines · click a node for the run · ± collapses a branch</span></div>
+    <div class="panel-head"><span class="panel-title">Flow</span><span class="panel-note">time runs left to right · diamonds mark decisions and tool calls · click a node for the run · ± collapses a branch</span>
+      <span class="flow-tools">
+        <button type="button" class="btn btn-ghost" data-flow-zoom="-" aria-label="Zoom out">−</button>
+        <button type="button" class="btn btn-ghost" data-flow-zoom="+" aria-label="Zoom in">+</button>
+        <button type="button" class="btn btn-ghost" data-flow-zoom="reset">Fit</button>
+        <label class="tf-toggle"><input type="checkbox" id="flow-compress" checked> compress gaps</label>
+      </span></div>
     <div class="flow-wrap" id="flow-wrap"></div>
   </div></div>`;
   const aiPanel = `<div class="panel" style="margin-top:16px" id="ai-panel">
@@ -5820,11 +6368,11 @@ function runGroupBody(
       <span style="display:flex;align-items:center;gap:10px"><span class="panel-note" id="ai-status"></span><button class="btn btn-primary" id="ai-run" type="button">Analyze with AI</button></span></div>
     <div class="panel-body" id="ai-body"><p class="panel-note">Ask the configured judge model to explain this ${label.toLowerCase()}: flow, cost drivers, errors and improvements. Nothing is sent until you click.</p></div>
   </div>`;
-  const overview = kind === "trace" ? turnSummaryPanel(runs, stats, window) : sessionTurnsPanel(runs);
+  const overview = kind === "trace" ? turnSummaryPanel(runs, stats, window, answerText) : sessionTurnsPanel(runs);
   return `<style>${FLOW_STYLE}</style>${backLink("/ui/traces", "All traces")}${head}${summary}${pagingBar(kind, id, total, paging)}${overview}${viewToggle}<div id="view-tree"><div class="panel"><div class="table-wrap"><table id="run-tree">
     <thead><tr><th>Time</th><th>Run</th><th>Agent</th><th>Provider</th><th>Model</th><th class="num">Tokens</th><th class="num">Tools</th><th class="num">Duration</th><th class="num">Cost</th><th>Status</th></tr></thead>
     <tbody>${rows}</tbody>
-  </table></div></div></div>${flowPanel}${aiPanel}${runFlowScript(flowPayload)}${runFlowToggleScript()}${runGroupInsightsScript(kind, id)}${runTreeScript()}${autoRefreshScript()}`;
+  </table></div></div></div>${flowPanel}${aiPanel}${runFlowScript(flowPayload)}${runFlowToggleScript()}${runGroupInsightsScript(kind, id)}${runTreeScript()}${runEventsScript()}${autoRefreshScript()}`;
 }
 
 function runGroupInsightsScript(kind: "trace" | "session", id: string): string {
@@ -5865,6 +6413,20 @@ function runFlowScript(payloadJson: string): string {
   if(!wrap)return;
   var NS="http://www.w3.org/2000/svg";
   var collapsed=new Set();
+  var zoom=1,compress=true;
+  function setZoom(next){
+    var prev=zoom;
+    zoom=Math.max(0.5,Math.min(6,next));
+    if(zoom===prev)return;
+    var anchor=wrap.scrollLeft+wrap.clientWidth/2;
+    var ratio=zoom/prev;
+    draw();
+    wrap.scrollLeft=Math.max(0,anchor*ratio-wrap.clientWidth/2);
+  }
+  window.torrixFlowZoom=function(dir){
+    if(dir==="reset"){zoom=1;draw();wrap.scrollLeft=0;return}
+    setZoom(dir==="+"?zoom*1.4:zoom/1.4);
+  };
   function toneFor(name){
     if(!name)return "s1";
     var h=0;for(var i=0;i<name.length;i+=1)h=(h*31+name.charCodeAt(i))>>>0;
@@ -5881,14 +6443,28 @@ function runFlowScript(payloadJson: string): string {
   }
   function draw(){
     var runs=DATA.runs;
+    var anns=DATA.annotations||[];
     var meta=document.getElementById("flow-meta");
     wrap.innerHTML="";
     if(!runs.length){wrap.innerHTML='<p class="panel-note" style="padding:16px">Nothing to graph.</p>';return}
     var byId={};runs.forEach(function(r){byId[r.id]=r});
     var t0=Infinity,t1=-Infinity;
     runs.forEach(function(r){var end=r.start+Math.max(r.duration,1);if(r.start<t0)t0=r.start;if(end>t1)t1=end});
+    anns.forEach(function(a){var end=a.at+(a.waitMs||0);if(a.at&&a.at<t0)t0=a.at;if(end>t1)t1=end});
     if(!isFinite(t0)){t0=0;t1=1000}
     if(t1-t0<1000)t1=t0+1000;
+    var merged=[];
+    (function(){
+      var ivs=runs.map(function(r){return {start:r.start,end:r.start+Math.max(r.duration,1)}});
+      anns.forEach(function(a){if(a.at)ivs.push({start:a.at,end:a.at+(a.waitMs||0)})});
+      ivs.sort(function(a,b){return a.start-b.start});
+      ivs.forEach(function(iv){
+        var last=merged[merged.length-1];
+        if(last&&iv.start<=last.end)last.end=Math.max(last.end,iv.end);
+        else merged.push({start:iv.start,end:iv.end});
+      });
+      if(!merged.length)merged.push({start:t0,end:t1});
+    })();
     var MAX_ROWS=12;
     var lanes=[],laneIndex={},laneRows={};
     runs.slice().sort(function(a,b){return a.start-b.start}).forEach(function(r){
@@ -5910,15 +6486,54 @@ function runFlowScript(payloadJson: string): string {
     });
     var totalRows=0;
     lanes.forEach(function(key){totalRows+=laneRows[key].count});
-    if(meta)meta.textContent=(DATA.capped?("showing first "+runs.length+" of "+DATA.total+" runs · "):(runs.length+" run"+(runs.length===1?"":"s")+" · "))+totalRows+" line"+(totalRows===1?"":"s");
     var laneH=46,padTop=28,padBottom=28,padX=104;
-    var width=Math.max(720,Math.min(2600,wrap.clientWidth||900));
+    var baseWidth=Math.max(720,Math.min(2600,wrap.clientWidth||900));
+    var width=Math.max(340,Math.round(baseWidth*zoom));
     var height=padTop+totalRows*laneH+padBottom;
     var plotW=width-2*padX;
     var laneTop={},rowCursor=padTop;
     lanes.forEach(function(key){laneTop[key]=rowCursor;rowCursor+=laneRows[key].count*laneH});
-    function xFor(ts){return padX+((ts-t0)/(t1-t0))*plotW}
-    function wFor(r){return Math.max(12,((Math.max(r.duration,1))/(t1-t0))*plotW)}
+    var GAP_PX=18;
+    var segs=[],gapCount=0;
+    (function(){
+      var spans=[];
+      var rawSpan=Math.max(1,merged[merged.length-1].end-merged[0].start);
+      var threshold=Math.max(1500,rawSpan*0.15);
+      for(var i=0;i<merged.length;i+=1){
+        var iv=merged[i];
+        spans.push({start:iv.start,end:iv.end,raw:Math.max(1,iv.end-iv.start),compressed:false});
+        if(i<merged.length-1){
+          var gap=merged[i+1].start-iv.end;
+          var isGap=compress&&gap>threshold;
+          if(isGap)gapCount+=1;
+          spans.push({start:iv.end,end:merged[i+1].start,raw:Math.max(1,gap),compressed:isGap});
+        }
+      }
+      var spanRaw=0;
+      spans.forEach(function(s){if(!s.compressed)spanRaw+=s.raw});
+      var avail=Math.max(120,plotW-gapCount*GAP_PX);
+      var cursor=padX;
+      spans.forEach(function(s){
+        var w=s.compressed?GAP_PX:Math.max(1,(s.raw/spanRaw)*avail);
+        s.x0=cursor;s.x1=cursor+w;
+        cursor+=w;
+      });
+      segs=spans;
+    })();
+    function xFor(ts){
+      if(!isFinite(ts))return padX;
+      if(ts<=segs[0].start)return segs[0].x0;
+      for(var i=0;i<segs.length;i+=1){
+        var s=segs[i];
+        if(ts<=s.end){
+          var raw=Math.max(1,s.end-s.start);
+          return s.x0+((Math.max(0,ts-s.start))/raw)*(s.x1-s.x0);
+        }
+      }
+      return segs[segs.length-1].x1;
+    }
+    function wFor(r){return Math.max(12,xFor(r.start+Math.max(r.duration,1))-xFor(r.start))}
+    if(meta)meta.textContent=(DATA.capped?("showing first "+runs.length+" of "+DATA.total+" runs · "):(runs.length+" run"+(runs.length===1?"":"s")+" · "))+totalRows+" line"+(totalRows===1?"":"s")+(anns.length?(" · "+anns.length+" authorization decision"+(anns.length===1?"":"s")):"")+(gapCount?(" · "+gapCount+" gap"+(gapCount===1?"":"s")+" compressed"):"")+(zoom!==1?(" · "+zoom.toFixed(1)+"x"):"");
     function rowFor(r){var k=r.agent||"no agent";return laneRows[k].index[r.id]||0}
     function yFor(r){var k=r.agent||"no agent";return laneTop[k]+rowFor(r)*laneH+laneH/2}
     var hidden=new Set();
@@ -5927,13 +6542,37 @@ function runFlowScript(payloadJson: string): string {
       while(p&&g<50){if(collapsed.has(p)){hidden.add(r.id);break}var pr=byId[p];p=pr?pr.parent:null;g+=1}
     });
     var svg=svgEl("svg",{viewBox:"0 0 "+width+" "+height,width:String(width),height:String(height),class:"flow-svg"});
-    for(var ti=0;ti<=4;ti+=1){
-      var ts=t0+((t1-t0)*ti/4),x=xFor(ts);
+    var defs=svgEl("defs",{});
+    var hatch=svgEl("pattern",{id:"flow-hatch",width:6,height:6,patternUnits:"userSpaceOnUse",patternTransform:"rotate(45)"});
+    hatch.appendChild(svgEl("rect",{width:6,height:6,fill:"var(--warn-dim)"}));
+    hatch.appendChild(svgEl("line",{x1:0,y1:0,x2:0,y2:6,stroke:"var(--warn)","stroke-width":1.6}));
+    defs.appendChild(hatch);
+    var gapPat=svgEl("pattern",{id:"flow-gap",width:6,height:6,patternUnits:"userSpaceOnUse",patternTransform:"rotate(45)"});
+    gapPat.appendChild(svgEl("rect",{width:6,height:6,fill:"var(--surface-2)"}));
+    gapPat.appendChild(svgEl("line",{x1:0,y1:0,x2:0,y2:6,stroke:"var(--line-2)","stroke-width":1.1}));
+    defs.appendChild(gapPat);
+    svg.appendChild(defs);
+    var tickStep=Math.max(1,Math.ceil(segs.length/6));
+    var tickTotal=0;
+    for(var ti=0;ti<segs.length;ti+=tickStep)tickTotal+=1;
+    var tickIdx=0;
+    for(var ti2=0;ti2<segs.length;ti2+=tickStep){
+      var seg=segs[ti2],x=seg.x0;
       svg.appendChild(svgEl("line",{x1:x,x2:x,y1:padTop-8,y2:height-padBottom+4,class:"flow-tick"}));
-      var lab=svgEl("text",{x:x,y:padTop-12,"text-anchor":ti===0?"start":ti===4?"end":"middle",class:"flow-tick-label"});
-      lab.textContent=ti===0?"+0s":"+"+((ts-t0)/1000).toFixed(1)+"s";
+      var lab=svgEl("text",{x:x,y:padTop-12,"text-anchor":tickIdx===0?"start":(tickIdx===tickTotal-1?"end":"middle"),class:"flow-tick-label"});
+      lab.textContent=tickIdx===0?"+0s":"+"+((seg.start-t0)/1000).toFixed(1)+"s";
       svg.appendChild(lab);
+      tickIdx+=1;
     }
+    var lastSeg=segs[segs.length-1];
+    svg.appendChild(svgEl("line",{x1:lastSeg.x1,x2:lastSeg.x1,y1:padTop-8,y2:height-padBottom+4,class:"flow-tick"}));
+    var lastLab=svgEl("text",{x:lastSeg.x1,y:padTop-12,"text-anchor":"end",class:"flow-tick-label"});
+    lastLab.textContent="+"+((t1-t0)/1000).toFixed(1)+"s";
+    svg.appendChild(lastLab);
+    segs.forEach(function(s){
+      if(!s.compressed)return;
+      svg.appendChild(svgEl("rect",{x:s.x0,y:padTop-6,width:Math.max(2,s.x1-s.x0),height:height-padTop-padBottom+10,fill:"url(#flow-gap)",class:"flow-gap"}));
+    });
     lanes.forEach(function(lane){
       var info=laneRows[lane],top=laneTop[lane];
       for(var row=0;row<info.count;row+=1){
@@ -5950,6 +6589,15 @@ function runFlowScript(payloadJson: string): string {
         }
         if(row===0)svg.appendChild(svgEl("rect",{x:padX-15,y:y-3,width:6,height:6,rx:2,fill:"var(--"+toneFor(lane==="no agent"?null:lane)+")"}));
       }
+    });
+    anns.forEach(function(a){
+      var r=byId[a.runId];
+      if(!r||hidden.has(r.id))return;
+      var start=a.at,end=start+(a.waitMs||0);
+      if(!a.waitMs&&a.approvalState!=="pending")return;
+      if(a.approvalState==="pending"&&!a.waitMs)end=t1;
+      var x1=xFor(start),x2=Math.max(x1+3,xFor(end)),y=yFor(r)-laneH*0.32;
+      svg.appendChild(svgEl("rect",{x:x1,y:y,width:x2-x1,height:laneH*0.64,fill:"url(#flow-hatch)",rx:3,class:"flow-wait"}));
     });
     runs.forEach(function(r){
       if(!r.parent||hidden.has(r.id))return;
@@ -6002,8 +6650,58 @@ function runFlowScript(payloadJson: string): string {
       g.addEventListener("mouseleave",function(){tip.style.display="none"});
       svg.appendChild(g);
     });
+    var toolMarks=DATA.tools||[];
+    toolMarks.forEach(function(t){
+      var r=byId[t.runId];
+      if(!r||hidden.has(r.id)||!t.at)return;
+      var cx=xFor(t.at),cy=yFor(r)+19;
+      var g=svgEl("g",{class:"flow-tool"});
+      g.appendChild(svgEl("path",{d:"M"+cx+" "+(cy-4)+" L"+(cx+4)+" "+cy+" L"+cx+" "+(cy+4)+" L"+(cx-4)+" "+cy+" Z"}));
+      g.addEventListener("click",function(e){e.stopPropagation();location.href=r.url});
+      g.addEventListener("mousemove",function(e){
+        var box=wrap.getBoundingClientRect();
+        tip.style.display="block";
+        tip.style.left=Math.max(4,Math.min(e.clientX-box.left+14,box.width-286))+"px";
+        tip.style.top=(e.clientY-box.top+14)+"px";
+        tip.innerHTML="<b>"+esc(t.name)+"</b><br>tool call · "+esc(r.name||"run");
+      });
+      g.addEventListener("mouseleave",function(){tip.style.display="none"});
+      svg.appendChild(g);
+    });
+    anns.forEach(function(a){
+      var r=byId[a.runId];
+      if(!r||hidden.has(r.id))return;
+      var cx=xFor(r.start)-9,cy=yFor(r);
+      var tone=(a.status==="allow"||a.status==="allowed"||a.status==="approved")?"ok":((a.status==="deny"||a.status==="denied"||a.status==="rejected"||a.status==="expired")?"bad":"hold");
+      var g=svgEl("g",{class:"flow-decision "+tone});
+      g.appendChild(svgEl("path",{d:"M"+cx+" "+(cy-8)+" L"+(cx+8)+" "+cy+" L"+cx+" "+(cy+8)+" L"+(cx-8)+" "+cy+" Z"}));
+      g.addEventListener("click",function(e){e.stopPropagation();location.href=r.url});
+      g.addEventListener("mousemove",function(e){
+        var box=wrap.getBoundingClientRect();
+        tip.style.display="block";
+        tip.style.left=Math.max(4,Math.min(e.clientX-box.left+14,box.width-286))+"px";
+        tip.style.top=(e.clientY-box.top+14)+"px";
+        tip.innerHTML="<b>"+esc(a.title)+"</b><br>authorization"+(a.risk?(" · risk "+esc(a.risk)):"")+(a.waitMs!=null?(" · held "+fmtMs(a.waitMs)):"")+(a.approvalState?(" · "+esc(a.approvalState)):"");
+      });
+      g.addEventListener("mouseleave",function(){tip.style.display="none"});
+      svg.appendChild(g);
+    });
     wrap.appendChild(svg);
   }
+  Array.prototype.slice.call(document.querySelectorAll("[data-flow-zoom]")).forEach(function(b){
+    b.addEventListener("click",function(){window.torrixFlowZoom(b.getAttribute("data-flow-zoom"))});
+  });
+  var comp=document.getElementById("flow-compress");
+  if(comp){
+    try{comp.checked=(localStorage.getItem("torrix_flow_compress")||"1")==="1"}catch(e){}
+    compress=comp.checked;
+    comp.addEventListener("change",function(){compress=comp.checked;try{localStorage.setItem("torrix_flow_compress",comp.checked?"1":"0")}catch(e){}draw()});
+  }
+  wrap.addEventListener("wheel",function(e){
+    if(!(e.ctrlKey||e.metaKey))return;
+    e.preventDefault();
+    setZoom(e.deltaY<0?zoom*1.2:zoom/1.2);
+  },{passive:false});
   window.torrixRenderFlow=draw;
   draw();
 })();</script>`;
@@ -6044,6 +6742,95 @@ export function treeAgentChip(name: string): string {
   }
   const tone = TREE_AGENT_TONES[hash % TREE_AGENT_TONES.length];
   return `<span class="agent-chip" style="--agent-tone:var(--${tone})">${escapeHtml(name)}</span>`;
+}
+
+function runEventsScript(): string {
+  return `<script>(function(){
+  var table=document.getElementById("run-tree");
+  if(!table)return;
+  var cache={};
+  function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+  function clip(s,n){s=String(s==null?"":s);return s.length>n?s.slice(0,n)+"…":s}
+  function fmtTime(ts){var t=Date.parse(ts);return isFinite(t)?new Date(t).toLocaleTimeString():"-"}
+  function argsText(raw){
+    if(raw==null)return "";
+    if(typeof raw==="object")return JSON.stringify(raw);
+    var text=String(raw).trim();
+    try{var parsed=JSON.parse(text);if(parsed&&typeof parsed==="object")return JSON.stringify(parsed)}catch(e){}
+    return text;
+  }
+  function row(runId,kind,title,body,ts){
+    return '<tr class="ev-row" data-event-row="1" data-run="'+esc(runId)+'" data-parent="'+esc(runId)+'">'
+      +'<td class="mono" style="color:var(--text-3);font-size:12px">'+esc(fmtTime(ts))+'</td>'
+      +'<td colspan="9"><div class="authz-cell">'
+      +'<span class="ev-mark '+kind+'" aria-hidden="true"></span>'
+      +'<span class="cell-stack"><span class="cell-inline"><span class="ev-kind">'+kind+'</span> <span class="authz-title">'+esc(clip(title,140))+'</span></span>'
+      +(body?'<span class="ev-args">'+esc(clip(body,260))+'</span>':'')
+      +'</span></div></td></tr>';
+  }
+  function toolRows(runId,message,ts){
+    var items=null;
+    try{
+      var parsed=JSON.parse(message);
+      if(Array.isArray(parsed))items=parsed;
+      else if(parsed&&typeof parsed==="object")items=[parsed];
+    }catch(e){}
+    if(!items||!items.length){return row(runId,"tool",clip(message,120),"",ts)}
+    return items.map(function(item){
+      if(!item||typeof item!=="object"){return row(runId,"tool",String(item),"",ts)}
+      var fn=item.function&&typeof item.function==="object"?item.function:null;
+      var name=item.name||(fn&&fn.name)||"tool";
+      var args=item.arguments!==undefined?item.arguments:(fn?fn.arguments:item.input);
+      return row(runId,"tool",name,argsText(args),ts);
+    }).join("");
+  }
+  function eventRows(runId,events){
+    var html="";
+    events.forEach(function(ev){
+      if(ev.type==="tool_call"){html+=toolRows(runId,ev.message,ev.created_at)}
+      else if(ev.type==="thinking"){html+=row(runId,"think","reasoning",ev.message,ev.created_at)}
+    });
+    return html||row(runId,"think","no tool calls or reasoning captured","","");
+  }
+  function lastChild(runId){
+    var first=table.querySelector('tbody tr[data-run="'+runId+'"]');
+    var last=first;
+    while(last&&last.nextElementSibling){
+      var next=last.nextElementSibling;
+      if(next.hasAttribute("data-event-row")||next.classList.contains("authz-row")||next.classList.contains("policy-row")){last=next}else{break}
+    }
+    return last;
+  }
+  function clear(runId){
+    Array.prototype.slice.call(table.querySelectorAll('tr[data-event-row="1"][data-run="'+runId+'"]')).forEach(function(r){r.parentNode.removeChild(r)});
+  }
+  table.addEventListener("click",function(e){
+    var b=e.target&&e.target.closest?e.target.closest("[data-events]"):null;
+    if(!b)return;
+    e.stopPropagation();e.preventDefault();
+    var runId=b.getAttribute("data-events");
+    if(b.getAttribute("data-expanded")==="1"){
+      clear(runId);b.setAttribute("data-expanded","0");b.textContent="▸";b.title="Show tool calls and reasoning";return;
+    }
+    if(cache[runId]){
+      var anchor=lastChild(runId);
+      if(anchor)anchor.insertAdjacentHTML("afterend",cache[runId]);
+      b.setAttribute("data-expanded","1");b.textContent="▾";b.title="Hide tool calls and reasoning";return;
+    }
+    b.disabled=true;b.textContent="…";
+    fetch("/api/runs/"+encodeURIComponent(runId)+"/events",{headers:{authorization:"Bearer "+(localStorage.getItem("torrix_key")||"")}})
+      .then(function(res){return res.ok?res.json():null})
+      .then(function(payload){
+        b.disabled=false;b.textContent="▸";
+        if(!payload||!payload.events)return;
+        cache[runId]=eventRows(runId,payload.events);
+        var anchor=lastChild(runId);
+        if(anchor)anchor.insertAdjacentHTML("afterend",cache[runId]);
+        b.setAttribute("data-expanded","1");b.textContent="▾";b.title="Hide tool calls and reasoning";
+      })
+      .catch(function(){b.disabled=false;b.textContent="▸"});
+  },true);
+})();</script>`;
 }
 
 function runTreeScript(): string {

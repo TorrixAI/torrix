@@ -1,7 +1,7 @@
 import type { DbClient } from "../db/client";
 import { sqlAll, sqlGet, sqlRun } from "../db/sql";
 import type { Events } from "../core/domain";
-import type { EventRepository, RunEventCount } from "../core/ports";
+import type { EventRepository, RunEventCount, RunToolEvent } from "../core/ports";
 
 export function createEventRepository(db: DbClient): EventRepository {
   return {
@@ -56,6 +56,26 @@ export function createEventRepository(db: DbClient): EventRepository {
         ids,
       );
       return rows.map((row) => ({ runId: String(row.runId), type: String(row.type), count: Number(row.count) }));
+    },
+
+    async listToolEvents(runIds: string[], limit: number): Promise<RunToolEvent[]> {
+      const ids = [...new Set(runIds.filter(Boolean))];
+      if (!ids.length || limit <= 0) {
+        return [];
+      }
+      const marks = ids.map(() => "?").join(", ");
+      const rows = await sqlAll<{ runId: string; message: string; createdAt: string }>(
+        db.engine,
+        `SELECT run_id AS "runId", message, created_at AS "createdAt" FROM events
+         WHERE run_id IN (${marks}) AND type = 'tool_call'
+         ORDER BY created_at ASC LIMIT ?`,
+        [...ids, limit],
+      );
+      return rows.map((row) => ({
+        runId: String(row.runId),
+        message: String(row.message ?? ""),
+        createdAt: String(row.createdAt),
+      }));
     },
   };
 }

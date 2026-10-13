@@ -6,7 +6,7 @@ import type { ObservedAgent } from "../core/ports";
 import { authenticateKey, extractBearer, readAuthCookie } from "../lib/auth";
 import type { Repositories } from "../repos";
 import { lockedFeature } from "../core/lockedFeatures";
-import { emptyState, escapeHtml, fmtTokens, fmtUsd, relTime, shell, shortDate, treeAgentChip } from "./ui";
+import { applyProjectScope, editionName, emptyState, escapeHtml, fmtTokens, fmtUsd, relTime, resolveProjectScope, shell, shortDate, treeAgentChip } from "./ui";
 
 export interface AgentsDeps {
   repos: Repositories;
@@ -15,9 +15,10 @@ export interface AgentsDeps {
 }
 
 export function agentTabs(active: "registry" | "observed", registryAllowed = true): string {
+  const edition = lockedFeature("agent-control")?.edition ?? "pro";
   const registry = registryAllowed
     ? `<a class="${active === "registry" ? "active" : ""}" href="/ui/agents">Registry</a>`
-    : `<a href="/ui/locked/agent-control" title="Available in Enterprise">Registry <span class="nav-lock">Ent</span></a>`;
+    : `<a href="/ui/locked/agent-control" title="Available in ${editionName(edition)}">Registry <span class="nav-lock">${edition === "pro" ? "Pro" : "Ent"}</span></a>`;
   return `<div class="filter-tabs" style="margin-bottom:14px">
     ${registry}
     <a class="${active === "observed" ? "active" : ""}" href="/ui/agents/observed">Observed</a>
@@ -26,14 +27,15 @@ export function agentTabs(active: "registry" | "observed", registryAllowed = tru
 
 function governUpsell(observedCount: number): string {
   const feature = lockedFeature("agent-control");
+  const edition = editionName(feature?.edition ?? "pro");
   const lead = observedCount
-    ? `Torrix sees ${observedCount === 1 ? "this agent" : `these ${observedCount} agents`}. Enterprise lets you control what ${observedCount === 1 ? "it is" : "they are"} allowed to do.`
-    : "Enterprise lets you control what your agents are allowed to do.";
+    ? `Torrix sees ${observedCount === 1 ? "this agent" : `these ${observedCount} agents`}. ${edition} lets you control what ${observedCount === 1 ? "it is" : "they are"} allowed to do.`
+    : `${edition} lets you control what your agents are allowed to do.`;
   return `<section class="panel" style="margin-bottom:14px"><div class="locked-card" style="max-width:none">
-    <span class="badge neutral" style="justify-self:start">Enterprise</span>
+    <span class="badge neutral" style="justify-self:start">${escapeHtml(edition)}</span>
     <p><b>${escapeHtml(lead)}</b></p>
     <p>${escapeHtml(feature?.pitch ?? "")} Every tool call can run through the governed MCP gateway with a full audit trail.</p>
-    <div class="locked-actions"><a class="btn btn-primary" href="/ui/locked/agent-control">See what Enterprise adds</a><a class="btn btn-ghost" href="/ui/settings">Activate a license</a></div>
+    <div class="locked-actions"><a class="btn btn-primary" href="/ui/locked/agent-control">See what ${escapeHtml(edition)} adds</a><a class="btn btn-ghost" href="/ui/settings">Activate a license</a></div>
   </div></section>`;
 }
 
@@ -95,7 +97,9 @@ export async function agentsRoute(app: FastifyInstance, deps: AgentsDeps): Promi
 
   app.get("/ui/agents/observed", { preHandler: authenticate }, async (request, reply) => {
     const auth = (request as unknown as { auth: AuthResult }).auth;
-    const observed = await repos.runs.listObservedAgents(auth.user.id, 100);
+    const scope = await resolveProjectScope(request, repos, auth.user.id);
+    applyProjectScope(reply, scope);
+    const observed = await repos.runs.listObservedAgents(auth.user.id, 100, scope.projectId);
     reply
       .type("text/html")
       .send(

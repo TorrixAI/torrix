@@ -72,6 +72,36 @@ test("core routes are unaffected by an installed but unlicensed extension", asyn
   }
 });
 
+test("trace annotations come from licensed extensions only", async () => {
+  const ext: TorrixExtension = {
+    ...stubExtension(),
+    async traceAnnotations(_ctx, input) {
+      return [
+        {
+          id: "ann-1",
+          kind: "authorization",
+          runId: input.runIds[0] ?? null,
+          traceId: input.traceId,
+          at: new Date().toISOString(),
+          title: "ALLOW readPurchaseOrder",
+          status: "allow",
+        },
+      ];
+    },
+  };
+  const ctx = await createTestApp({}, { extensions: [ext] });
+  try {
+    const input = { userId: "u1", traceId: "t1", runIds: ["r1"] };
+    expect(await ctx.host.traceAnnotations(input)).toEqual([]);
+    ctx.config.license.override("pro");
+    const annotations = await ctx.host.traceAnnotations(input);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0]).toMatchObject({ id: "ann-1", runId: "r1", traceId: "t1", status: "allow" });
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
 test("extension migrations run after core and are recorded under the extension namespace", async () => {
   const migrations = stubMigrations();
   const ctx = await createTestApp({}, { extensions: [stubExtension(migrations.dirs)] });
@@ -118,9 +148,10 @@ test("the host rejects reserved, malformed and duplicate ids", () => {
   expect(() => new ExtensionHost([base, { ...base, id: "other" }], license)).toThrow("duplicate feature id");
 });
 
-test("with no extensions the host is inert", () => {
+test("with no extensions the host is inert", async () => {
   const host = new ExtensionHost([], loadConfig({} as NodeJS.ProcessEnv).license);
   expect(host.features()).toEqual([]);
   expect(host.featureAllowed("anything")).toBe(false);
   expect(host.migrationSources().map((s) => s.id)).toEqual(["core"]);
+  expect(await host.traceAnnotations({ userId: "u1", traceId: "t1", runIds: [] })).toEqual([]);
 });

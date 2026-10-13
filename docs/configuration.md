@@ -39,6 +39,7 @@ See [Privacy and security](privacy-and-security.md) for everything Torrix stores
 | `TORRIX_USER_LIMIT` | edition default | lowers the number of user accounts allowed. It cannot raise the edition's limit |
 | `TORRIX_RETENTION_DAYS` | keep everything | deletes runs older than this many days, once a day. Golden runs are kept |
 | `TORRIX_DEMO` | `false` | read-only demo mode with sample data (`IS_DEMO` also works) |
+| `TORRIX_AUTH_RETENTION_DAYS` | keep everything | Pro and Enterprise: deletes agent authorization decisions older than this many days, once a day. Off by default because decisions are the audit record |
 
 ## Notifications
 

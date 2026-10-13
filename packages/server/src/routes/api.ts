@@ -14,6 +14,7 @@ import { sqlRun } from "../db/sql";
 import { PROMPT_NAME_RE, extractVariables, mergeVariables } from "../lib/prompts";
 import { retainEvalKey, runEvaluation } from "../lib/evalRunner";
 import { monthStart, runWeeklyDigest, spendSince, dispatchWebhook } from "../lib/costGate";
+import { resolveProjectScope } from "./ui";
 import { calculateCost, detectProvider, getCostComparison, removePricingOverride, setPricingOverride } from "../lib/pricing";
 import { recordAudit, clientIp } from "../lib/audit";
 import { encryptSecret } from "../lib/secrets";
@@ -835,7 +836,7 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
       scorer?: string;
     };
     const mode = body.mode === "online" ? "online" : "offline";
-    if (mode === "online" && !config.editionConfig.onlineEvals) {
+    if (mode === "online" && !deps.host.featureAllowed("online-evals")) {
       return reply.code(403).send({ error: "online_evals_gated", detail: "upgrade to pro or enterprise" });
     }
     if (mode === "online") {
@@ -882,7 +883,7 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     if (mode === "online" && typeof body.api_key === "string") {
       retainEvalKey(evalRecord.id, body.api_key.trim());
     }
-    void runEvaluation({ repos, edition: config.editionConfig, assist: deps.host.assist() }, evalRecord.id, authUser.user.id);
+    void runEvaluation({ repos, edition: config.editionConfig, onlineEvals: deps.host.featureAllowed("online-evals"), assist: deps.host.assist() }, evalRecord.id, authUser.user.id);
     return reply.code(201).send({ eval: evalRecord });
   });
 
@@ -1767,6 +1768,15 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     return reply.send({ window_days: days, tools: rows });
   });
 
+  app.get("/api/analytics/by-project", { preHandler: authenticate }, async (request, reply) => {
+    const authUser = (request as unknown as { auth: AuthResult }).auth;
+    const q = request.query as Record<string, string | undefined>;
+    const days = clampDays(q.days);
+    const projectId = q.project && (await repos.projects.roleFor(authUser.user.id, q.project)) ? q.project : undefined;
+    const rows = await repos.runs.analyticsByProject(authUser.user.id, { days, projectId });
+    return reply.send({ window_days: days, projects: rows });
+  });
+
   app.get("/api/search", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const q = request.query as Record<string, string | undefined>;
@@ -1814,7 +1824,8 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const q = request.query as Record<string, string | undefined>;
     const force = q.force === "1" || q.force === "true";
-    return reply.send(await getInsights(repos, authUser.user.id, clampDays(q.days), force, deps.host.assist()));
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    return reply.send(await getInsights(repos, authUser.user.id, clampDays(q.days), force, deps.host.assist(), scope.projectId));
   });
 
   app.post("/api/insights/generate", { preHandler: authenticate }, async (request, reply) => {
@@ -1822,14 +1833,15 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     const q = request.query as Record<string, string | undefined>;
     const body = (request.body ?? {}) as { days?: number };
     const days = clampDays(typeof body.days === "number" ? String(body.days) : q.days);
-    const report = await getInsights(repos, authUser.user.id, days, true, deps.host.assist());
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    const report = await getInsights(repos, authUser.user.id, days, true, deps.host.assist(), scope.projectId);
     recordAudit(repos, {
       userId: authUser.user.id,
       actor: authUser.keyRecord ? `api_key:${authUser.keyRecord.key_prefix}` : "session",
       action: "insights.generate",
       targetType: "report",
       targetId: "insights",
-      detail: { days, generatedWith: report.generatedWith, judgeCostUsd: report.judgeCostUsd },
+      detail: { days, generatedWith: report.generatedWith, judgeCostUsd: report.judgeCostUsd, project_id: scope.projectId ?? null },
       ip: clientIp(request),
     });
     return reply.send(report);
@@ -1838,19 +1850,21 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
   app.get("/api/insights/caching", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const q = request.query as Record<string, string | undefined>;
-    return reply.send(await cachingInsights(repos, authUser.user.id, clampDays(q.days)));
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    return reply.send(await cachingInsights(repos, authUser.user.id, clampDays(q.days), scope.projectId));
   });
 
   app.get("/api/insights/slm-savings", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
-    return reply.send(await slmSavingsInsights(deps.host.assist(), authUser.user.id));
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    return reply.send(await slmSavingsInsights(deps.host.assist(), authUser.user.id, scope.projectId));
   });
 
   app.get("/api/insights/savings", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const q = request.query as Record<string, string | undefined>;
-    const projectId = q.project && (await repos.projects.roleFor(authUser.user.id, q.project)) ? q.project : undefined;
-    return reply.send(await savingsReport(repos, authUser.user.id, { days: Number(q.days) || 30, projectId, assist: deps.host.assist() }));
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    return reply.send(await savingsReport(repos, authUser.user.id, { days: Number(q.days) || 30, projectId: scope.projectId, assist: deps.host.assist() }));
   });
 
   app.get("/api/runs/group/:kind/:id/insights", { preHandler: authenticate }, async (request, reply) => {
@@ -1895,6 +1909,14 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     const limit = Math.min(200, Math.max(1, Number(q.limit) || 100));
     const offset = Math.max(0, Number(q.offset) || 0);
     const { runs, total } = await repos.runs.listGroup(authUser.user.id, { kind, id, limit, offset });
+    if (kind === "trace" && q.include === "authorization") {
+      const authorization = await deps.host.traceAnnotations({
+        userId: authUser.user.id,
+        traceId: id,
+        runIds: runs.map((run) => run.id),
+      });
+      return reply.send({ kind, id, runs, total, limit, offset, authorization });
+    }
     return reply.send({ kind, id, runs, total, limit, offset });
   });
 

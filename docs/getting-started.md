@@ -67,6 +67,8 @@ The Integrations page also shows a **Connected** badge on each card once data ar
 
 - Learn [how Torrix organizes runs, traces and sessions](concepts.md), so your agent runs group
   the way you expect.
+- Take the [console tour](console.md) for the trace views, the project scope selector and every
+  other screen.
 - Set a budget or hard cap under **Cost & Alerts**.
 - Turn on PII masking under **Governance** if prompts may contain personal data.
 - Move to Postgres or Kubernetes when you are ready: see [Self-hosting](self-hosting.md).

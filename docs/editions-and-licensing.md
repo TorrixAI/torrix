@@ -17,9 +17,11 @@ runs, settings, users and API keys.
 | LLM judge, online evaluations, eval guardrails | | ✓ | ✓ |
 | Model routing and fallback, small-model savings analysis | | ✓ | ✓ |
 | Policy engine and human review queue | | ✓ | ✓ |
-| Agent control plane: agent identities, delegated authority, authorization policies, approvals | | | ✓ |
-| Governed MCP gateway and agent-to-agent delegation | | | ✓ |
-| Single sign-on (OIDC) and directory sync | | | ✓ |
+| Agent control plane: agent identities and credentials, signed grants, delegated authority, authorization policies, risk scoring, single-use approvals | | ✓ (10 agents) | ✓ (unlimited) |
+| Governed MCP gateway | | ✓ | ✓ |
+| Agent-to-agent delegation | | | ✓ |
+| Signed calls to downstream servers and the agent permission graph | | | ✓ |
+| Single sign-on (OIDC), directory sync (Entra ID, Okta, any SCIM 2.0 directory) and business record connectors | | | ✓ |
 | EU AI Act compliance reports, audit log export, S3 and GCS exports | | | ✓ |
 
 ## Limits
@@ -30,12 +32,19 @@ runs, settings, users and API keys.
 | Stored runs | unlimited | unlimited | unlimited |
 | Run retention | kept until you delete them | same | same |
 | Datasets, playground, search | unlimited | unlimited | unlimited |
+| Governed agents (agents with an identity that Torrix authorizes) | none, unlimited observed agents | 10 | unlimited |
 
 Torrix never deletes your data on its own in any edition. If you want old runs cleaned up, set
-`TORRIX_RETENTION_DAYS`. Golden runs are always kept.
+`TORRIX_RETENTION_DAYS`. Golden runs are always kept. Authorization decisions, the audit record of
+what agents were allowed to do, are kept too, unless you set `TORRIX_AUTH_RETENTION_DAYS`.
+
+A governed agent counts while it is active. Suspending or revoking an agent, or letting it expire,
+frees its place, so replacing an agent never needs an upgrade. Observed agents, the ones Torrix sees
+in your runs, are never limited.
 
 Paid features you do not have yet appear in the console with a small **Pro** or **Ent** badge and
-a short description, so you can see what an upgrade adds.
+a short description, so you can see what an upgrade adds. What each one does and how to set it up is
+in [Pro and Enterprise features](pro-and-enterprise.md).
 
 ## Upgrading from Community
 

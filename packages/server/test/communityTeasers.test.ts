@@ -100,8 +100,8 @@ test("community builds offer observed agents only: no registry, agent MCP tools 
     expect(observed.body).toContain('href="/ui/locked/agent-control"');
     expect(observed.body).toContain('href="/ui/agents/observed"');
     expect(observed.body).not.toContain("?register=");
-    expect(observed.body).toContain("See what Enterprise adds");
-    expect(observed.body).toContain("Enterprise adds agent governance");
+    expect(observed.body).toContain("See what Pro adds");
+    expect(observed.body).toContain("agent governance (10 agents)");
     expect(observed.body).not.toContain("—");
 
     const tools = await ctx.app.inject({

@@ -44,6 +44,19 @@ export function createProjectRepository(db: DbClient): ProjectRepository {
       );
     },
 
+    async listAll(): Promise<Project[]> {
+      return sqlAll<Project>(db.engine, "SELECT * FROM projects ORDER BY created_at ASC", []);
+    },
+
+    async memberCounts(): Promise<Array<{ projectId: string; count: number }>> {
+      const rows = await sqlAll<{ projectId: string; count: number }>(
+        db.engine,
+        `SELECT project_id AS "projectId", COUNT(*) AS count FROM project_members GROUP BY project_id`,
+        [],
+      );
+      return rows.map((row) => ({ projectId: String(row.projectId), count: Number(row.count) }));
+    },
+
     async listAccessible(userId: string): Promise<ProjectAccess[]> {
       const rows = await sqlAll<Record<string, unknown>>(
         db.engine,

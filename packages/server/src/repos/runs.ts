@@ -1,6 +1,6 @@
 import type { DbClient } from "../db/client";
 import { sqlAll, sqlGet, sqlRun, type SqlValue } from "../db/sql";
-import type { AnalyticsFilter, AnalyticsRow, DashboardFilters, DashboardStats, DashboardWindow, ListOptions, ObservedAgent, RunChildCount, RunGroupQuery, RunListFilters, RunListSummary, RunRepository, TraceGroup } from "../core/ports";
+import type { AnalyticsFilter, AnalyticsRow, DashboardFilters, DashboardStats, DashboardWindow, GroupRoot, ListOptions, ObservedAgent, RunChildCount, RunGroupQuery, RunListFilters, RunListSummary, RunRepository, TraceGroup } from "../core/ports";
 import type { Run } from "../core/domain";
 
 export function toRunRow(data: Record<string, unknown>): Run {
@@ -20,6 +20,87 @@ const RUN_COLUMNS = [
 ] as const;
 
 export function createRunRepository(db: DbClient): RunRepository {
+  const queryGroups = async (
+    userId: string,
+    kind: "trace" | "session",
+    filters: RunListFilters,
+    limit: number,
+    offset: number,
+    includeEmpty: boolean,
+  ): Promise<{ groups: TraceGroup[]; total: number }> => {
+    const column = kind === "trace" ? "trace_id" : "session_id";
+    const where = runListWhere(userId, filters);
+    const keyExpr = includeEmpty ? `COALESCE(${column}, '')` : column;
+    const emptyClause = includeEmpty ? "" : ` AND ${column} IS NOT NULL AND ${column} != ''`;
+    const total = Number(
+      (await sqlGet<{ c: number }>(db.engine, `SELECT COUNT(DISTINCT ${keyExpr}) AS c FROM runs WHERE ${where.sql}${emptyClause}`, where.params))?.c ?? 0,
+    );
+    const rows = await sqlAll<{
+      id: string;
+      runs: number;
+      subagents: number;
+      cost: number;
+      tokens: number;
+      errorCount: number;
+      firstAt: string;
+      lastAt: string;
+    }>(
+      db.engine,
+      `SELECT ${keyExpr} AS id,
+              COUNT(*) AS runs,
+              COALESCE(SUM(CASE WHEN parent_run_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS subagents,
+              COALESCE(SUM(cost_usd), 0) AS cost,
+              COALESCE(SUM(COALESCE(input_tokens,0) + COALESCE(output_tokens,0)), 0) AS tokens,
+              COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) AS "errorCount",
+              MIN(created_at) AS "firstAt",
+              MAX(created_at) AS "lastAt"
+       FROM runs
+       WHERE ${where.sql}${emptyClause}
+       GROUP BY ${keyExpr}
+       ORDER BY "lastAt" DESC
+       LIMIT ? OFFSET ?`,
+      [...where.params, limit, offset],
+    );
+    const ids = rows.map((r) => String(r.id));
+    const facet = new Map<string, { models: Set<string>; agents: Set<string> }>();
+    if (ids.length) {
+      const marks = ids.map(() => "?").join(", ");
+      const members = await sqlAll<{ groupId: string; model: string | null; agent_name: string | null }>(
+        db.engine,
+        `SELECT ${keyExpr} AS "groupId", model, agent_name FROM runs WHERE ${where.sql} AND ${keyExpr} IN (${marks})`,
+        [...where.params, ...ids],
+      );
+      for (const m of members) {
+        const key = String(m.groupId);
+        const bucket = facet.get(key) ?? { models: new Set<string>(), agents: new Set<string>() };
+        if (m.model) {
+          bucket.models.add(String(m.model));
+        }
+        if (m.agent_name) {
+          bucket.agents.add(String(m.agent_name));
+        }
+        facet.set(key, bucket);
+      }
+    }
+    const groups = rows.map((r) => {
+      const extra = facet.get(String(r.id));
+      return {
+        kind,
+        id: String(r.id),
+        runs: Number(r.runs),
+        subagents: Number(r.subagents),
+        cost: Number(r.cost),
+        tokens: Number(r.tokens),
+        errorCount: Number(r.errorCount),
+        firstAt: String(r.firstAt),
+        lastAt: String(r.lastAt),
+        models: extra ? [...extra.models] : [],
+        agents: extra ? [...extra.agents] : [],
+      };
+    });
+    return { groups, total };
+  };
+
   return {
     async save(run: Run): Promise<void> {
       const cols = RUN_COLUMNS.map((c) => `"${c}"`).join(", ");
@@ -430,70 +511,77 @@ export function createRunRepository(db: DbClient): RunRepository {
     },
 
     async listGroups(userId: string, kind: "trace" | "session", limit: number): Promise<TraceGroup[]> {
+      const { groups } = await queryGroups(userId, kind, {}, limit, 0, false);
+      return groups;
+    },
+
+    async listGroupsFiltered(
+      userId: string,
+      kind: "trace" | "session",
+      filters: RunListFilters,
+      limit: number,
+      offset: number,
+    ): Promise<{ groups: TraceGroup[]; total: number }> {
+      return queryGroups(userId, kind, filters, limit, offset, true);
+    },
+
+    async listByGroupIds(
+      userId: string,
+      kind: "trace" | "session",
+      groupIds: string[],
+      filters: RunListFilters,
+      limit: number,
+    ): Promise<Run[]> {
       const column = kind === "trace" ? "trace_id" : "session_id";
-      const rows = await sqlAll<{
-        id: string;
-        runs: number;
-        subagents: number;
-        cost: number;
-        tokens: number;
-        errorCount: number;
-        firstAt: string;
-        lastAt: string;
-      }>(
-        db.engine,
-        `SELECT ${column} AS id,
-                COUNT(*) AS runs,
-                COALESCE(SUM(CASE WHEN parent_run_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS subagents,
-                COALESCE(SUM(cost_usd), 0) AS cost,
-                COALESCE(SUM(COALESCE(input_tokens,0) + COALESCE(output_tokens,0)), 0) AS tokens,
-                COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) AS "errorCount",
-                MIN(created_at) AS "firstAt",
-                MAX(created_at) AS "lastAt"
-         FROM runs
-         WHERE user_id = ? AND ${column} IS NOT NULL
-         GROUP BY ${column}
-         ORDER BY "lastAt" DESC
-         LIMIT ?`,
-        [userId, limit],
-      );
-      const ids = rows.map((r) => String(r.id));
-      const facet = new Map<string, { models: Set<string>; agents: Set<string> }>();
-      if (ids.length) {
-        const marks = ids.map(() => "?").join(", ");
-        const members = await sqlAll<{ groupId: string; model: string | null; agent_name: string | null }>(
-          db.engine,
-          `SELECT ${column} AS "groupId", model, agent_name FROM runs WHERE user_id = ? AND ${column} IN (${marks})`,
-          [userId, ...ids],
-        );
-        for (const m of members) {
-          const key = String(m.groupId);
-          const bucket = facet.get(key) ?? { models: new Set<string>(), agents: new Set<string>() };
-          if (m.model) {
-            bucket.models.add(String(m.model));
-          }
-          if (m.agent_name) {
-            bucket.agents.add(String(m.agent_name));
-          }
-          facet.set(key, bucket);
-        }
+      const keys = [...new Set(groupIds)];
+      const named = keys.filter((key) => key.length > 0);
+      const includeEmpty = keys.some((key) => key.length === 0);
+      if (!named.length && !includeEmpty) {
+        return [];
       }
-      return rows.map((r) => {
-        const extra = facet.get(String(r.id));
-        return {
-          kind,
-          id: String(r.id),
-          runs: Number(r.runs),
-          subagents: Number(r.subagents),
-          cost: Number(r.cost),
-          tokens: Number(r.tokens),
-          errorCount: Number(r.errorCount),
-          firstAt: String(r.firstAt),
-          lastAt: String(r.lastAt),
-          models: extra ? [...extra.models] : [],
-          agents: extra ? [...extra.agents] : [],
-        };
-      });
+      const where = runListWhere(userId, filters);
+      const clauses: string[] = [];
+      const params: SqlValue[] = [...where.params];
+      if (named.length) {
+        clauses.push(`${column} IN (${named.map(() => "?").join(", ")})`);
+        params.push(...named);
+      }
+      if (includeEmpty) {
+        clauses.push(`(${column} IS NULL OR ${column} = '')`);
+      }
+      const rows = await sqlAll<Record<string, unknown>>(
+        db.engine,
+        `SELECT * FROM runs WHERE ${where.sql} AND (${clauses.join(" OR ")}) ORDER BY created_at DESC LIMIT ?`,
+        [...params, limit],
+      );
+      return rows.map(toRunRow);
+    },
+
+    async listGroupRoots(userId: string, kind: "trace" | "session", groupIds: string[], projectId?: string): Promise<GroupRoot[]> {
+      if (!groupIds.length) {
+        return [];
+      }
+      const column = kind === "trace" ? "trace_id" : "session_id";
+      const marks = groupIds.map(() => "?").join(", ");
+      const rows = await sqlAll<{ groupId: string; agentName: string | null; requestBody: string | null }>(
+        db.engine,
+        `SELECT ${column} AS "groupId", agent_name AS "agentName", substr(request_body, 1, 4000) AS "requestBody"
+         FROM runs
+         WHERE user_id = ? AND ${column} IN (${marks}) AND parent_run_id IS NULL${projectId ? " AND project_id = ?" : ""}
+         ORDER BY created_at ASC`,
+        projectId ? [userId, ...groupIds, projectId] : [userId, ...groupIds],
+      );
+      const seen = new Set<string>();
+      const out: GroupRoot[] = [];
+      for (const row of rows) {
+        const key = String(row.groupId);
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        out.push({ groupId: key, agentName: row.agentName ?? null, requestBody: row.requestBody ?? null });
+      }
+      return out;
     },
 
     async listGroup(userId: string, query: RunGroupQuery): Promise<{ runs: Run[]; total: number }> {
@@ -526,7 +614,7 @@ export function createRunRepository(db: DbClient): RunRepository {
       return rows.map(toRunRow);
     },
 
-    async listObservedAgents(userId: string, limit: number): Promise<ObservedAgent[]> {
+    async listObservedAgents(userId: string, limit: number, projectId?: string): Promise<ObservedAgent[]> {
       const rows = await sqlAll<{
         name: string;
         runs: number;
@@ -545,11 +633,11 @@ export function createRunRepository(db: DbClient): RunRepository {
                 MIN(created_at) AS "firstSeen",
                 MAX(created_at) AS "lastSeen"
          FROM runs
-         WHERE user_id = ? AND (agent_name IS NOT NULL OR agent_id IS NOT NULL)
+         WHERE user_id = ? AND (agent_name IS NOT NULL OR agent_id IS NOT NULL)${projectId ? " AND project_id = ?" : ""}
          GROUP BY COALESCE(agent_name, agent_id)
          ORDER BY "lastSeen" DESC
          LIMIT ?`,
-        [userId, limit],
+        projectId ? [userId, projectId, limit] : [userId, limit],
       );
       return rows.map((row) => ({
         name: String(row.name),
@@ -572,6 +660,22 @@ export function createRunRepository(db: DbClient): RunRepository {
 
     async analyticsByAgent(userId: string, filter: AnalyticsFilter): Promise<AnalyticsRow[]> {
       return analyticsQuery(db, userId, filter, "COALESCE(agent_name, agent_id)", " AND (agent_name IS NOT NULL OR agent_id IS NOT NULL)");
+    },
+
+    async analyticsByProject(userId: string, filter: AnalyticsFilter): Promise<AnalyticsRow[]> {
+      return analyticsQuery(db, userId, filter, "project_id", " AND project_id IS NOT NULL");
+    },
+
+    async spendByProjectSince(since: string): Promise<Array<{ projectId: string; spend: number; runs: number }>> {
+      const rows = await sqlAll<{ projectId: string; spend: number; runs: number }>(
+        db.engine,
+        `SELECT project_id AS "projectId", COALESCE(SUM(cost_usd), 0) AS spend, COUNT(*) AS runs
+         FROM runs
+         WHERE project_id IS NOT NULL AND created_at >= ?
+         GROUP BY project_id`,
+        [since],
+      );
+      return rows.map((row) => ({ projectId: String(row.projectId), spend: Number(row.spend), runs: Number(row.runs) }));
     },
 
     async analyticsByTool(userId: string, filter: AnalyticsFilter): Promise<AnalyticsRow[]> {
@@ -601,11 +705,11 @@ export function createRunRepository(db: DbClient): RunRepository {
       return rows.map(toRunRow);
     },
 
-    async runsSince(userId: string, isoCutoff: string, limit: number): Promise<Run[]> {
+    async runsSince(userId: string, isoCutoff: string, limit: number, projectId?: string): Promise<Run[]> {
       const rows = await sqlAll<Record<string, unknown>>(
         db.engine,
-        "SELECT * FROM runs WHERE user_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT ?",
-        [userId, isoCutoff, limit],
+        `SELECT * FROM runs WHERE user_id = ? AND created_at > ?${projectId ? " AND project_id = ?" : ""} ORDER BY created_at ASC LIMIT ?`,
+        projectId ? [userId, isoCutoff, projectId, limit] : [userId, isoCutoff, limit],
       );
       return rows.map(toRunRow);
     },

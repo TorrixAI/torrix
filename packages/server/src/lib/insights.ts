@@ -57,9 +57,9 @@ function extractPrefix(requestBody: string | null | undefined): string | null {
   return prefix ? prefix.slice(0, PREFIX_CHARS) : null;
 }
 
-export async function cachingInsights(repos: Repositories, userId: string, days = 7): Promise<CachingReport> {
+export async function cachingInsights(repos: Repositories, userId: string, days = 7, projectId?: string): Promise<CachingReport> {
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
-  const runs = await repos.runs.runsSince(userId, since, MAX_SCAN);
+  const runs = await repos.runs.runsSince(userId, since, MAX_SCAN, projectId);
   const groups = new Map<string, Run[]>();
   for (const run of runs) {
     const prefix = extractPrefix(run.request_body);
@@ -108,8 +108,8 @@ export interface SlmSavingsReport {
   estimatedSavingsUsd: number;
 }
 
-export async function slmSavingsInsights(assist: Assist, userId: string): Promise<SlmSavingsReport> {
-  const opportunities = await assist.slmOpportunities(userId);
+export async function slmSavingsInsights(assist: Assist, userId: string, projectId?: string): Promise<SlmSavingsReport> {
+  const opportunities = await assist.slmOpportunities(userId, projectId);
   const totalSpendUsd = Number(opportunities.reduce((sum, item) => sum + item.spendUsd, 0).toFixed(4));
   return {
     opportunities: opportunities.slice(0, 10),
@@ -172,6 +172,8 @@ export interface InsightsOptions {
   /** Attempt judge-written bullets when the judge is configured (default true). */
   useJudge?: boolean;
   assist?: Assist;
+  /** Restrict the report to one project (the sticky console scope). */
+  projectId?: string;
 }
 
 export async function generateInsights(
@@ -181,11 +183,12 @@ export async function generateInsights(
   options: InsightsOptions = {},
 ): Promise<InsightsReport> {
   const assist = options.assist ?? NO_ASSIST;
+  const projectId = options.projectId;
   const from = new Date(Date.now() - days * 86_400_000).toISOString();
-  const stats = await repos.runs.dashboardStats(userId, { from });
-  const anomalies = await repos.runs.list(userId, { limit: 1, offset: 0, anomalyOnly: true });
-  const caching = await cachingInsights(repos, userId, days);
-  const slm = await slmSavingsInsights(assist, userId);
+  const stats = await repos.runs.dashboardStats(userId, { from, projectId });
+  const anomalies = await repos.runs.list(userId, { limit: 1, offset: 0, anomalyOnly: true, projectId });
+  const caching = await cachingInsights(repos, userId, days, projectId);
+  const slm = await slmSavingsInsights(assist, userId, projectId);
   const topModel = stats.byModel[0] ? { model: stats.byModel[0].model, runs: stats.byModel[0].runs, cost: stats.byModel[0].cost } : null;
   const agents: InsightsAgentRow[] = stats.byAgent.map((row) => ({
     name: row.agent,
@@ -382,11 +385,12 @@ export async function generateInsights(
   };
 }
 
-const insightsCacheKey = (userId: string): string => `insights_cache:${userId}`;
+const insightsCacheKey = (userId: string, projectId?: string): string =>
+  projectId ? `insights_cache:${userId}:${projectId}` : `insights_cache:${userId}`;
 
-export async function loadCachedInsights(repos: Repositories, userId: string): Promise<InsightsReport | null> {
+export async function loadCachedInsights(repos: Repositories, userId: string, projectId?: string): Promise<InsightsReport | null> {
   try {
-    const raw = await repos.instance.get(insightsCacheKey(userId));
+    const raw = await repos.instance.get(insightsCacheKey(userId, projectId));
     if (!raw) {
       return null;
     }
@@ -419,16 +423,17 @@ export async function getInsights(
   days = 7,
   force = false,
   assist: Assist = NO_ASSIST,
+  projectId?: string,
 ): Promise<InsightsReport> {
   if (!force) {
-    const cached = await loadCachedInsights(repos, userId);
+    const cached = await loadCachedInsights(repos, userId, projectId);
     if (cached && cached.windowDays === days) {
       return cached;
     }
   }
-  const report = await generateInsights(repos, userId, days, { useJudge: true, assist });
+  const report = await generateInsights(repos, userId, days, { useJudge: true, assist, projectId });
   try {
-    await repos.instance.set(insightsCacheKey(userId), JSON.stringify({ generatedAt: report.generatedAt, report }));
+    await repos.instance.set(insightsCacheKey(userId, projectId), JSON.stringify({ generatedAt: report.generatedAt, report }));
   } catch (err) {
     console.error("insights cache write failed", err);
   }

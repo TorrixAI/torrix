@@ -574,7 +574,7 @@ export interface AgentCredential {
 
 export type PrincipalKind = "human" | "service" | "application" | "external";
 export type PrincipalStatus = "active" | "disabled";
-export type IdentityProviderKind = "local" | "oidc" | "entra" | "okta" | "sap_ias";
+export type IdentityProviderKind = "local" | "oidc" | "entra" | "okta" | "sap_ias" | "scim";
 
 export interface Principal {
   id: string;
@@ -701,6 +701,8 @@ export interface AuthorizationRequest {
   request_hash: string;
   trace_id: string | null;
   run_id: string | null;
+  session_id: string | null;
+  parent_run_id: string | null;
   state: RequestState;
   execution_status: string | null;
   result_summary: string | null;
@@ -832,6 +834,8 @@ export interface AuthorizationInput {
   context: Record<string, unknown>;
   traceId: string | null;
   runId: string | null;
+  sessionId?: string | null;
+  parentRunId?: string | null;
   grantDelegationId?: string | null;
 }
 

@@ -217,6 +217,19 @@ test("compare, analytics, search and insights endpoints", async () => {
     const byUser = await ctx.app.inject({ method: "GET", url: "/api/analytics/by-user?days=7", headers: bearer(session.key) });
     expect(byUser.json().end_users).toHaveLength(2);
 
+    const byProject = await ctx.app.inject({ method: "GET", url: "/api/analytics/by-project?days=7", headers: bearer(session.key) });
+    expect(byProject.statusCode).toBe(200);
+    expect(byProject.json().projects).toHaveLength(1);
+    expect(byProject.json().projects[0].key).toBe(projectId);
+    expect(byProject.json().projects[0].runs).toBe(2);
+    expect(byProject.json().projects[0].cost).toBeCloseTo(0.402, 5);
+
+    const analyticsPage = await ctx.app.inject({ method: "GET", url: `/ui/analytics?project=${projectId}`, headers: bearer(session.key) });
+    expect(analyticsPage.statusCode).toBe(200);
+    expect(analyticsPage.body).toContain("Cost by project");
+    expect(analyticsPage.body).toContain("project Default");
+    expect(analyticsPage.body).toContain(`/ui/runs?project=${projectId}`);
+
     const search = await ctx.app.inject({ method: "GET", url: "/api/search?q=actions", headers: bearer(session.key) });
     expect(search.statusCode).toBe(200);
     expect(search.json().total).toBe(2);

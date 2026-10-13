@@ -20,6 +20,8 @@ import type {
   ReviewRequest,
   RouteDecision,
   TorrixExtension,
+  TraceAnnotation,
+  TraceAnnotationInput,
 } from "./extensions";
 
 interface FeatureRouteConfig {
@@ -106,7 +108,17 @@ export class ExtensionHost {
   migrationSources(): MigrationSource[] {
     return [
       coreMigrationSource(),
-      ...this.extensions.flatMap((ext) => (ext.migrations ? [{ id: ext.id, dirs: ext.migrations }] : [])),
+      ...this.extensions.flatMap((ext) =>
+        ext.migrations
+          ? [
+              {
+                id: ext.id,
+                dirs: { sqlite: ext.migrations.sqlite, postgres: ext.migrations.postgres },
+                files: ext.migrations.files,
+              },
+            ]
+          : [],
+      ),
     ];
   }
 
@@ -205,6 +217,22 @@ export class ExtensionHost {
 
   private active(): TorrixExtension[] {
     return this.extensions.filter((ext) => this.license.allows(ext.minEdition));
+  }
+
+  /** Typed events licensed extensions attach to a trace (e.g. authorization decisions). */
+  async traceAnnotations(input: TraceAnnotationInput): Promise<TraceAnnotation[]> {
+    const out: TraceAnnotation[] = [];
+    for (const ext of this.active()) {
+      if (!ext.traceAnnotations) {
+        continue;
+      }
+      try {
+        out.push(...(await ext.traceAnnotations(this.context(this.attachedDeps()), input)));
+      } catch (err) {
+        console.error(`${ext.id}: trace annotations failed`, err);
+      }
+    }
+    return out;
   }
 
   async admitProxy(input: { userId: string; sessionId: string | null }): Promise<{ status: number; body: Record<string, unknown> } | null> {

@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppDeps } from "../app";
-import type { MigrationDirs } from "../db/migrate";
+import type { MigrationDirs, MigrationFiles } from "../db/migrate";
 import type { RateRule } from "../lib/rateLimit";
 import type { PolicyVerdict, Run, SlmOpportunity } from "./domain";
 import type { Edition } from "./editions";
@@ -144,7 +144,7 @@ export interface Assist {
   complete(userId: string, request: { system: string; user: string; maxTokens?: number }): Promise<AssistCompletion | null>;
   /** Graded 0..1 verdict from the judge LLM; null when unavailable or unconfigured. */
   judgeVerdict(userId: string, request: { input: string; output: string; expected: string | null }): Promise<AssistVerdict | null>;
-  slmOpportunities(userId: string): Promise<SlmOpportunity[]>;
+  slmOpportunities(userId: string, projectId?: string): Promise<SlmOpportunity[]>;
   clusterRunsByIntent(runs: Run[]): Promise<IntentCluster[]>;
   /** Judges one stored run; false when no judge is configured, so batch callers can stop early. */
   judgeRun(userId: string, run: Run, options: { apply: boolean }): Promise<boolean>;
@@ -171,6 +171,32 @@ export interface UiSlotInput {
 
 export type UiSlotRenderer = (ctx: ExtensionContext, input: UiSlotInput) => Promise<string>;
 
+/** One typed event an edition attaches to a trace, e.g. an authorization decision. */
+export interface TraceAnnotation {
+  id: string;
+  kind: string;
+  /** The run this event gated or belongs to. */
+  runId: string | null;
+  traceId: string | null;
+  sessionId?: string | null;
+  parentRunId?: string | null;
+  at: string;
+  title: string;
+  detail?: string | null;
+  /** Edition-defined state, e.g. allow / deny / require_approval / approved. */
+  status?: string | null;
+  riskLevel?: string | null;
+  approval?: { state: string; reviewer: string | null; decidedAt: string | null; waitMs: number | null } | null;
+  meta?: Record<string, unknown> | null;
+}
+
+export interface TraceAnnotationInput {
+  userId: string;
+  traceId: string;
+  /** Every run id in the trace, so editions can join on run links too. */
+  runIds: string[];
+}
+
 /**
  * The seam between the public core and separately distributed editions. Core
  * never imports an extension; a distribution entrypoint passes extensions to
@@ -182,7 +208,8 @@ export interface TorrixExtension {
   /** Lowest edition that unlocks any of this extension's routes. */
   minEdition: Edition;
   features: readonly FeatureDescriptor[];
-  migrations?: MigrationDirs;
+  /** Per-dialect migration dirs, optionally with embedded SQL for compiled binaries. */
+  migrations?: MigrationDirs & { files?: MigrationFiles };
   rateLimits?: readonly RateRule[];
   demoWritablePaths?: readonly string[];
   register?(app: FastifyInstance, ctx: ExtensionContext): Promise<void>;
@@ -193,6 +220,8 @@ export interface TorrixExtension {
   proxy?: ProxyHooks;
   /** Called after any ingestion path stores a run (proxy, SDK ingest, MCP proxy, replay). Fire-and-forget. */
   runRecorded?(ctx: ExtensionContext, run: Run): void;
+  /** Typed events for a trace view (authorization decisions and the like). Best effort. */
+  traceAnnotations?(ctx: ExtensionContext, input: TraceAnnotationInput): Promise<TraceAnnotation[]>;
   assist?(ctx: ExtensionContext): Partial<Assist>;
   /** Console panels for core page slots; an empty result lets core show its upgrade teaser. */
   ui?: Partial<Record<UiSlot, UiSlotRenderer>>;

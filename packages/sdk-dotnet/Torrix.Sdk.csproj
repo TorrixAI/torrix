@@ -8,7 +8,7 @@
     <RootNamespace>Torrix</RootNamespace>
     <AssemblyName>Torrix.Sdk</AssemblyName>
     <PackageId>Torrix.Sdk</PackageId>
-    <Version>1.1.1</Version>
+    <Version>1.2.0</Version>
     <Description>Self-hosted LLM observability SDK for Torrix: ingest runs and route provider traffic through a Torrix proxy.</Description>
   </PropertyGroup>
 

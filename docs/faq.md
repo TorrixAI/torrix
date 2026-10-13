@@ -29,6 +29,14 @@ Send a trace id per user turn: the `x-torrix-trace` header with the proxy, `run_
 `runContext` with the SDKs, or the `traceparent` header if you already use OpenTelemetry. See
 [How Torrix organizes your data](concepts.md).
 
+**Which platforms' agents can Torrix govern?**
+Any of them. Torrix does not care where an agent was built. If the agent can call a remote MCP
+server over HTTP with custom headers (Claude Code, opencode, Gemini CLI, Cursor, the OpenAI Agents
+SDK, LangGraph, n8n and many more), point it at the Torrix gateway and every tool call is checked
+first. If it cannot speak MCP, it can call a check endpoint before it acts. Governance is a Pro and
+Enterprise feature. Seeing what any agent did works in every edition through the proxy, the SDKs or
+OpenTelemetry.
+
 **Can I use Postgres?**
 Yes. Set `TORRIX_DATABASE_URL`, or switch live under **Settings > Database engine**.
 

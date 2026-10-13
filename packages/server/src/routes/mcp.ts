@@ -395,6 +395,14 @@ export async function mcpRoute(app: FastifyInstance, deps: McpDeps): Promise<voi
           throw new Error(`${kind} id required`);
         }
         const { runs, total } = await repos.runs.listGroup(userId, { kind, id, limit, offset: 0 });
+        if (kind === "trace" && deps.host) {
+          const authorization = await deps.host.traceAnnotations({
+            userId,
+            traceId: id,
+            runIds: runs.map((run) => run.id),
+          });
+          return { kind, id, total, runs: runs.map(briefRun), authorization };
+        }
         return { kind, id, total, runs: runs.map(briefRun) };
       }
       case "get_cost_summary": {

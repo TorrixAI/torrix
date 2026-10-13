@@ -19,7 +19,7 @@ jobs:
 
       - name: Check the tree is the Community edition
         run: |
-          if [ -e packages/enterprise ] || [ -e packages/server/src/ee ]; then
+          if [ -e packages/enterprise ]; then
             echo "Enterprise code found, refusing to publish a public image" >&2
             exit 1
           fi

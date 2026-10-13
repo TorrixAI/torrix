@@ -57,7 +57,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, options: ConfigOptions = {}):
     mediaDir: env.TORRIX_MEDIA_DIR ?? path.join(path.dirname(path.resolve(dbPath)), "torrix-media"),
     updateRepo: env.TORRIX_UPDATE_REPO ?? null,
     attestationIssuer: env.TORRIX_ATTESTATION_ISSUER?.trim() || "torrix",
-    version: "1.1.1",
+    version: "1.2.0",
   };
 }
 
