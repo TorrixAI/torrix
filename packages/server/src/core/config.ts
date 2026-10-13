@@ -18,6 +18,8 @@ export interface ServerConfig {
   telemetry: boolean;
   openBrowser: boolean;
   localHost: string | null;
+  /** Anyone who can reach the console may create an account. Off by default after the first account. */
+  allowSignup: boolean;
   mediaDir: string;
   updateRepo: string | null;
   attestationIssuer: string;
@@ -54,10 +56,11 @@ export function loadConfig(env: NodeJS.ProcessEnv, options: ConfigOptions = {}):
     telemetry: env.TORRIX_TELEMETRY !== "false",
     openBrowser: env.TORRIX_OPEN_BROWSER !== "false",
     localHost: env.TORRIX_LOCAL_HOST ?? null,
+    allowSignup: env.TORRIX_ALLOW_SIGNUP === "true",
     mediaDir: env.TORRIX_MEDIA_DIR ?? path.join(path.dirname(path.resolve(dbPath)), "torrix-media"),
     updateRepo: env.TORRIX_UPDATE_REPO ?? null,
     attestationIssuer: env.TORRIX_ATTESTATION_ISSUER?.trim() || "torrix",
-    version: "1.2.0",
+    version: "1.2.1",
   };
 }
 

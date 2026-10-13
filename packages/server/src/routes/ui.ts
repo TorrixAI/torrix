@@ -1344,7 +1344,8 @@ ${THEME_BOOT}<title>Signing in · Torrix</title></head>
   });
 
   app.get("/ui/login", async (_request, reply) => {
-    reply.type("text/html").send(loginPage((await deps.host?.loginProviders()) ?? []));
+    const signupOpen = config.allowSignup || (await repos.users.countUsers()) === 0;
+    reply.type("text/html").send(loginPage((await deps.host?.loginProviders()) ?? [], signupOpen));
   });
 
   app.get("/ui/dashboard", { preHandler: authenticate }, async (request, reply) => {
@@ -6864,7 +6865,7 @@ const EYE_ON = `<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strok
 
 const EYE_OFF = `<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.2 15 15"/><path d="M6 6C4.4 7.1 3 8.6 2.1 10c0 0 3 4.6 6.9 4.6 1.2 0 2.3-.3 3.3-.8"/><path d="M10.6 4.9C12.8 5.9 14.8 8 15.9 10"/></svg>`;
 
-function loginPage(providers: Array<{ label: string; href: string }> = []): string {
+function loginPage(providers: Array<{ label: string; href: string }> = [], signupOpen = true): string {
   const heroSignal = `
   <svg viewBox="0 0 460 118" fill="none" aria-hidden="true">
     <path d="M0 98c32-3 36-36 68-38s32 24 64 22 28-46 58-48 24 22 56 20 36-30 66-32 24 26 56 22 28-24 48-28M0 98c0-42 14-70 40-80" stroke="#0284c7" stroke-width="1.8" stroke-linecap="round" opacity=".85"/>
@@ -6899,7 +6900,7 @@ function loginPage(providers: Array<{ label: string; href: string }> = []): stri
         <p class="lg-card-tag">Self-hosted LLM observability</p>
         <div class="lg-tabs">
           <button type="button" id="tabLogin" class="active">Sign in</button>
-          <button type="button" id="tabSignup">Create account</button>
+          <button type="button" id="tabSignup"${signupOpen ? "" : ' style="display:none"'}>Create account</button>
           <button type="button" id="tabKey">I have a key</button>
         </div>
         <form onsubmit="return false" id="authForm">
@@ -6913,6 +6914,7 @@ function loginPage(providers: Array<{ label: string; href: string }> = []): stri
             </div>
             <div class="field-error" id="loginErr"></div>
             <button class="lg-btn" id="loginBtn">Sign in</button>
+            ${signupOpen ? "" : '<p class="lg-card-tag" style="margin-top:14px">New accounts are created by an administrator.</p>'}
             ${providers
               .map(
                 (provider) =>

@@ -33,7 +33,8 @@ Torrix listens on port 8088. Open http://localhost:8088 in your browser.
 ## 2. Create your account
 
 The first account you create becomes the administrator. Torrix also creates a **Default**
-project and an API key for you. Torrix keys start with `trxk_`.
+project and an API key for you. Torrix keys start with `trxk_`. After that, new accounts are added
+by an administrator on the **Team** page, so nobody else can sign themselves up.
 
 ## 3. Connect your app
 

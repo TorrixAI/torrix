@@ -122,6 +122,7 @@ export { decryptSecret, encryptSecret, secretsEncrypted } from "./lib/secrets";
 export { checkForUpdate } from "./lib/updateCheck";
 export { agentTabs } from "./routes/agents";
 export { lockedFeature, lockedFeatures, type LockedFeature } from "./core/lockedFeatures";
+export { assertOutboundAllowed, guardedFetch, OutboundBlockedError, outboundPolicy, type OutboundPolicy } from "./lib/outbound";
 export {
   GOVERNANCE_STYLE,
   backLink,

@@ -37,6 +37,11 @@ export async function authRoute(app: FastifyInstance, deps: AuthDeps): Promise<v
 
       const limit = getUserLimit(config.editionConfig, deps.env.TORRIX_USER_LIMIT);
       const count = await repos.users.countUsers();
+      // The first account is the administrator's; after that an administrator creates accounts
+      // unless the operator opted into open sign-up.
+      if (count > 0 && !config.allowSignup) {
+        return reply.code(403).send({ error: "signup_closed" });
+      }
       if (limit !== null && count >= limit) {
         return reply.code(403).send({ error: "user_limit_reached" });
       }

@@ -1,3 +1,4 @@
+import { ensureSecretKey } from "./lib/secrets";
 import { loadConfig, type ServerConfig } from "./core/config";
 import { openInitialClient } from "./db/manager";
 import { sqlAll } from "./db/sql";
@@ -28,6 +29,13 @@ export async function startServer(options: StartOptions = {}): Promise<FastifyIn
   if (process.argv.includes("--version") || process.argv.includes("-v") || process.argv.includes("version")) {
     console.log(`torrix ${config.version}`);
     process.exit(0);
+  }
+
+  if (!config.databaseUrl) {
+    const source = ensureSecretKey(config.dbPath);
+    if (source === "created") {
+      console.log("Stored credentials are now encrypted with a key created next to the database (torrix.secret.key). Back it up with the database.");
+    }
   }
 
   const host = new ExtensionHost(options.extensions ?? [], config.license);

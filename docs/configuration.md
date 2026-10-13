@@ -18,7 +18,8 @@ Torrix is configured with environment variables. Every one of them is optional.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `TORRIX_LOCAL_HOST` | none | lets the proxy reach a model server on your own network, for example `host.docker.internal:11434` for Ollama. Without it, private addresses are refused |
+| `TORRIX_LOCAL_HOST` | none | lets Torrix reach a server on your own network, for example `host.docker.internal:11434` for Ollama. Comma separated, `host` or `host:port`. Without it, private addresses are refused |
+| `TORRIX_ALLOW_PRIVATE_HOSTS` | `false` | set to `true` to let Torrix call any private or loopback address, for example MCP servers and business systems inside your network. Cloud metadata and link-local addresses are never reachable. Prefer listing hosts in `TORRIX_LOCAL_HOST` |
 
 ## Privacy
 
@@ -26,7 +27,7 @@ Torrix is configured with environment variables. Every one of them is optional.
 |---|---|---|
 | `TORRIX_TELEMETRY` | `true` | sends an anonymous daily ping (random instance id, OS, runtime version). Set to `false` to turn it off |
 | `TORRIX_PRICING_SYNC` | `true` | downloads public model prices once a day. Set to `false` to keep the server fully offline |
-| `TORRIX_SECRET_KEY` | none | encrypts stored credentials (for example webhook and provider keys saved in settings) with AES-256-GCM. Set it in production to a long random string and keep it safe: changing it makes credentials saved earlier unreadable |
+| `TORRIX_SECRET_KEY` | created for you with SQLite | encrypts stored credentials (for example webhook and provider keys saved in settings) with AES-256-GCM. With SQLite, Torrix creates a key file called `torrix.secret.key` next to the database on first start. With Postgres, set this to a long random string yourself. Keep the key safe: changing it makes credentials saved earlier unreadable |
 
 See [Privacy and security](privacy-and-security.md) for everything Torrix stores and sends.
 
@@ -36,6 +37,7 @@ See [Privacy and security](privacy-and-security.md) for everything Torrix stores
 |---|---|---|
 | `TORRIX_LICENSE_KEY` | none | a Pro or Enterprise license key, applied on first start. You can also paste it under **Settings** |
 | `TORRIX_EDITION` | none | caps the edition, for example `community` to keep a licensed server on community features. It can never unlock a paid edition |
+| `TORRIX_ALLOW_SIGNUP` | `false` | the first account is always allowed. After that, new accounts are created by an administrator. Set to `true` to let anyone who can reach the console create an account |
 | `TORRIX_USER_LIMIT` | edition default | lowers the number of user accounts allowed. It cannot raise the edition's limit |
 | `TORRIX_RETENTION_DAYS` | keep everything | deletes runs older than this many days, once a day. Golden runs are kept |
 | `TORRIX_DEMO` | `false` | read-only demo mode with sample data (`IS_DEMO` also works) |

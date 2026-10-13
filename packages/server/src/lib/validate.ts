@@ -48,7 +48,7 @@ export function validateTargetUrl(rawTarget: string, allowLocalhost: boolean): U
   return { valid: true, url: parsed };
 }
 
-function blockedReason(host: string): string | null {
+export function blockedReason(host: string): string | null {
   const h = host.toLowerCase();
   const named = BLOCKED_HOSTNAMES[h];
   if (named) {

@@ -1,3 +1,7 @@
+import { randomBytes } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+
 const PREFIX = "enc:v1:";
 const PLAIN_PREFIX = "plain:";
 let warnedMissingKey = false;
@@ -73,5 +77,44 @@ export async function decryptSecret(stored: string | null | undefined): Promise<
     return new TextDecoder().decode(plain);
   } catch {
     return null;
+  }
+}
+
+export type SecretKeySource = "env" | "file" | "created" | "none";
+
+/**
+ * Secure by default for SQLite installs. With no TORRIX_SECRET_KEY, a key is
+ * created next to the database file (readable by the owner only) and reused on
+ * every start, so stored credentials are encrypted without any setup. Back the
+ * file up with the database, or set TORRIX_SECRET_KEY yourself. Postgres and
+ * other setups must set the variable: a key generated on a disk that does not
+ * persist would be lost along with every credential it protected.
+ */
+export function ensureSecretKey(dbPath: string): SecretKeySource {
+  if (keyMaterial() !== null) {
+    return "env";
+  }
+  const file = join(dirname(resolve(dbPath)), "torrix.secret.key");
+  try {
+    if (existsSync(file)) {
+      const saved = readFileSync(file, "utf8").trim();
+      if (saved) {
+        process.env.TORRIX_SECRET_KEY = saved;
+        return "file";
+      }
+    }
+    mkdirSync(dirname(file), { recursive: true });
+    const created = randomBytes(32).toString("base64url");
+    writeFileSync(file, `${created}\n`, { mode: 0o600 });
+    try {
+      chmodSync(file, 0o600);
+    } catch {
+      // not every filesystem supports modes
+    }
+    process.env.TORRIX_SECRET_KEY = created;
+    return "created";
+  } catch (err) {
+    console.warn(`[torrix] could not create a secret key file (${(err as Error).message}); set TORRIX_SECRET_KEY to encrypt stored credentials`);
+    return "none";
   }
 }

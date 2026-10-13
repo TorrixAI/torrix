@@ -41,7 +41,8 @@ OpenTelemetry.
 Yes. Set `TORRIX_DATABASE_URL`, or switch live under **Settings > Database engine**.
 
 **Can more than one person use the Community edition?**
-Yes, up to 5 user accounts, with projects and roles. Pro and Enterprise have no user limit.
+Yes, up to 5 user accounts, with projects and roles. An administrator adds each account on the
+**Team** page. Pro and Enterprise have no user limit.
 
 **I am moving from Helicone. Do I have to change my headers?**
 No. Torrix reads Helicone's session, request, user and property headers. Change the base URL first

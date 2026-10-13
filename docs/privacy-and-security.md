@@ -47,12 +47,22 @@ The request your app sends to the provider is not changed.
   one without breaking the others.
 - Run ids chosen by clients can never overwrite another account's data.
 - The console uses an HTTP-only session cookie. Sign-in attempts are rate limited.
-- Credentials you save in settings are encrypted when `TORRIX_SECRET_KEY` is set.
+- Only the first account can sign itself up. After that, an administrator creates accounts, so a
+  console that is reachable from the internet does not hand out accounts. Set
+  `TORRIX_ALLOW_SIGNUP=true` only if you want open sign-up.
+- Credentials you save in settings are encrypted at rest. With SQLite, Torrix creates the key for
+  you in a file next to the database (`torrix.secret.key`, readable only by its owner). With
+  Postgres, set `TORRIX_SECRET_KEY`.
 
 ## Network
 
 - The proxy refuses to forward to private and local network addresses unless you allow one with
   `TORRIX_LOCAL_HOST`, so it cannot be turned into a way into your internal network.
+- Every request Torrix makes to an address someone supplied (MCP servers, connectors, directory
+  sync) is checked first. Cloud metadata and link-local addresses are never reachable, private and
+  loopback addresses are blocked until you allow them with `TORRIX_LOCAL_HOST` or
+  `TORRIX_ALLOW_PRIVATE_HOSTS`, redirects are not followed, and what a remote system answers is not
+  shown back to the person who asked.
 - Put Torrix behind your usual TLS-terminating reverse proxy or ingress. The Helm chart can create
   an Ingress for you.
 

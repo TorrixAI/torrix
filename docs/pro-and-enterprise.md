@@ -74,6 +74,9 @@ record of every decision.
   Torrix credential. Tool discovery is filtered to what the agent may do, and every tool call is
   authorized before it runs. Denied calls get a clear error; held calls wait for an approval, and a
   client that can wait can ask Torrix to hold the call until a decision arrives.
+  Only administrators register MCP servers. Torrix does not call private or loopback addresses by
+  default, so for a server inside your network list its host in `TORRIX_LOCAL_HOST` (for example
+  `mcp.internal:3000`) or set `TORRIX_ALLOW_PRIVATE_HOSTS=true`.
 - **Agents that do not speak MCP** can call the authorization endpoint before they act, and then
   proceed only on an allow.
 

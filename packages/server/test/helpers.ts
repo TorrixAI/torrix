@@ -63,7 +63,9 @@ export interface TestAppOptions {
 
 // TORRIX_EDITION only caps the edition in production, so tests that ask for a
 // paid edition get it through the programmatic license override instead.
-export async function createTestApp(env: NodeJS.ProcessEnv = {}, options: TestAppOptions = {}): Promise<TestApp> {
+export async function createTestApp(requestedEnv: NodeJS.ProcessEnv = {}, options: TestAppOptions = {}): Promise<TestApp> {
+  // Production closes sign-up after the first account; most tests create several users through the API.
+  const env: NodeJS.ProcessEnv = { TORRIX_ALLOW_SIGNUP: "true", ...requestedEnv };
   const ctx = await createTestDb(options.extensions);
   const config = loadConfig(env, { trustedKeys: options.trustedKeys });
   const requested = parseEdition(env.TORRIX_EDITION);

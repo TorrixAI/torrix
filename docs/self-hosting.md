@@ -93,6 +93,10 @@ Database migrations run automatically every time Torrix starts.
 - **SQLite:** an administrator can click **Download SQLite backup** on the **Settings** page for a
   consistent copy, or call `GET /api/admin/backup`. You can also back up the volume or file while Torrix is stopped.
 - **Postgres:** use your usual tools, such as `pg_dump`.
+- **Key file:** with SQLite, credentials you saved in settings are encrypted with the key in
+  `torrix.secret.key`, next to the database. Back it up with the database. A restored database
+  without its key cannot read those credentials, and you would enter them again. (Set
+  `TORRIX_SECRET_KEY` yourself if you prefer to keep the key outside the data volume.)
 - Media files (images and audio attached to runs) are stored next to the database in a
   `torrix-media` folder, or wherever `TORRIX_MEDIA_DIR` points. Include it in backups.
 
