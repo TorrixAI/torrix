@@ -52,6 +52,7 @@ export type RunSource =
   | "mcp"
   | "mcp_proxy"
   | "mcp_gateway"
+  | "a2a"
   | "otel"
   | "dataset";
 

@@ -164,7 +164,7 @@ export class TorrixClient {
   private async send(batch: TorrixRecord[]): Promise<string[]> {
     const headers: Record<string, string> = {
       "content-type": "application/json",
-      "user-agent": "torrix-sdk/1.3.0",
+      "user-agent": "torrix-sdk/1.4.0",
     };
     if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`;
     if (this.project) headers["x-torrix-project"] = this.project;

@@ -183,7 +183,7 @@ public final class TorrixClient implements AutoCloseable {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + "/api/ingest"))
                 .timeout(DEFAULT_TIMEOUT)
                 .header("content-type", "application/json")
-                .header("user-agent", "torrix-sdk-java/1.3.0")
+                .header("user-agent", "torrix-sdk-java/1.4.0")
                 .POST(HttpRequest.BodyPublishers.ofString(Json.write(payload)));
         if (!apiKey.isEmpty()) {
             builder.header("authorization", "Bearer " + apiKey);

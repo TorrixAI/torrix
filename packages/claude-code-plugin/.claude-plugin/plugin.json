@@ -1,7 +1,7 @@
 {
   "name": "torrix",
   "displayName": "Torrix for Claude Code",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Logs every Claude Code model call (tokens, cache, cost, prompts, tool calls, subagents) to your self-hosted Torrix instance.",
   "author": { "name": "Torrix" },
   "license": "FSL-1.1-ALv2",

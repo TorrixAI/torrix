@@ -118,6 +118,7 @@ export {
   type NotifyDeps,
 } from "./lib/notify";
 export { scanAndMask } from "./lib/pii";
+export { applyMasking, type MaskingInput, type MaskingResult, type MaskingSettings } from "./lib/masking";
 export { calculateCost, getCostComparison } from "./lib/pricing";
 export { buildRunRow, makeEvent } from "./lib/runMapper";
 export { recommendSavings } from "./lib/savings";

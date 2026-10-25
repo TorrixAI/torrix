@@ -59,7 +59,7 @@ Telemetry is off in this image. Data lives in `/data`, so keep that volume when 
 ## Tags
 
 - `latest`: the newest release
-- `1.3.0`, `1.3`: a specific release
+- `1.4.0`, `1.4`: a specific release
 
 Images are built for `linux/amd64` and `linux/arm64`, run as a non-root user and include a health
 check on `/health`.

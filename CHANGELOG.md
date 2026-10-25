@@ -3,9 +3,25 @@
 What changed in each release, and what to do when you upgrade. Release notes with the same
 information are on the [releases page](https://github.com/TorrixAI/torrix/releases).
 
-## Unreleased
+## 1.4.0 (2026-10-25)
 
-Nothing yet.
+The agent hand-off release. Agent-to-agent hops now become traceable runs, and the console shows
+who handed authority to whom. MCP gateway runs also mask personal data before storage.
+
+- Enterprise: agent-to-agent hand-offs are visible and traceable. Each `/a2a/message` hop
+  creates a masked run under the calling agent, with a returned `run_id` so the receiving agent can
+  parent its own work to it. Pass `x-torrix-parent-run-id`, `x-torrix-session` and `x-torrix-trace`
+  (or the body fields) to join an existing trace. Authorization activity gains a protocol chip and
+  filter, decision details show an Agent hand-off panel, and the delegation chain names each agent
+  correctly. The Delegations page marks A2A hops and shows the delegating agent. Policies can match
+  `context.a2a.from_agent_slug`, and the action ledger records the same hop facts. The Pro and
+  Enterprise guide now shows a request and response, the error codes, and where to see hops, and
+  `examples/a2a-delegation/` provisions the whole flow against a local server.
+- MCP gateway runs now mask personal data in tool arguments and response text before saving the run
+  and its events, matching the proxy and ingest paths. The run records whether masking was applied.
+
+Upgrade: there is no database migration. Swap the image or binary as usual. The A2A additions
+require the Enterprise build and an Enterprise license.
 
 ## 1.3.0 (2026-10-25)
 

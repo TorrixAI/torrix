@@ -548,6 +548,7 @@ export interface AuthorizationQuery {
   agentId?: string;
   decision?: DecisionKind;
   action?: string;
+  protocol?: string;
   from?: string;
   to?: string;
   limit: number;

@@ -183,7 +183,54 @@ Assertions are single-use: the `jti` is recorded, so a replay is rejected.
 ## Enterprise extras
 
 - **Agent-to-agent delegation**: one agent can hand a task to another, with the same subset-scope
-  checks.
+  checks. Call `POST /a2a/message` with the calling agent's credential. The request names the action,
+  the receiving agent (id or slug), the resource and the parameters:
+
+  ```bash
+  curl -X POST http://localhost:8088/a2a/message \
+    -H "Authorization: Bearer trxa_..." \
+    -H "Content-Type: application/json" \
+    -H "x-torrix-parent-run-id: 4b2c..." \
+    -H "x-torrix-session: chat-42" \
+    -H "x-torrix-trace: turn-42" \
+    -d '{
+      "action": "readPurchaseOrder",
+      "to_agent": "fulfilment-agent",
+      "resourceType": "SAP",
+      "resourceId": "PO-1001",
+      "params": { "purchase_order": "PO-1001" }
+    }'
+  ```
+
+  A successful response returns the decision, the child delegation and a run id:
+
+  ```json
+  {
+    "request_id": "6f18...",
+    "decision": "ALLOW",
+    "reason": "policy A2A: delegator may read purchase orders allowed",
+    "reason_code": "policy_allow",
+    "approval_id": null,
+    "delegation_id": "0d51...",
+    "run_id": "a93e...",
+    "chain": ["b121...", "0d51..."],
+    "delegated_from": { "id": "8c02...", "slug": "procurement-agent" },
+    "delegated_to": { "id": "2e77...", "slug": "fulfilment-agent" }
+  }
+  ```
+
+  The receiver passes `run_id` as its own `x-torrix-parent-run-id` (or ingest `parent_run_id`) so
+  its calls hang under the hop. The hop is stored as a run and appears in **Traces**, **Sessions**
+  and **Flow**, and the decision appears in **Agents > Activity** with the `a2a` protocol filter.
+  **Agents > Delegations** marks the child delegation with the delegating agent and an `a2a` chip.
+  Policies can match `context.a2a.from_agent_slug`, and the action ledger records the same hop facts.
+
+  A missing or invalid delegation, scope, limit or target fails before authorization with one of
+  `no_delegation_for_action`, `delegation_scope_exceeds_parent`, `delegation_limits_exceed_parent`,
+  `delegation_depth_exceeded`, `target_agent_not_active`, `self_delegation`, `params_too_large` or
+  `credential_scope_denied`. A policy can still return `DENY` or `REQUIRE_APPROVAL`; a held call
+  returns `approval_id` and its run has status 202. The example in `examples/a2a-delegation/`
+  provisions two agents, a principal, a delegation and a policy, then makes the call.
 - **Signed calls to downstream servers**: every request the gateway forwards can carry a short-lived
   signed token that names the agent, the tool, the exact arguments and the decision. Your downstream
   server can verify it offline against Torrix's public keys, so it can refuse anything that did not

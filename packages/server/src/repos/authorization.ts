@@ -168,6 +168,10 @@ export function createAuthorizationRepository(db: DbClient): AuthorizationReposi
         clauses.push("action = ?");
         params.push(query.action);
       }
+      if (query.protocol) {
+        clauses.push("protocol = ?");
+        params.push(query.protocol);
+      }
       if (query.from) {
         clauses.push("created_at >= ?");
         params.push(query.from);
