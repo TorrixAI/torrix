@@ -14,6 +14,15 @@ function keyMaterial(): string | null {
   return raw.trim();
 }
 
+/** The key a deployment is rotating away from; it only ever decrypts. */
+function previousKeyMaterial(): string | null {
+  const raw = process.env.TORRIX_SECRET_KEY_PREVIOUS;
+  if (!raw || !raw.trim()) {
+    return null;
+  }
+  return raw.trim();
+}
+
 async function deriveKey(material: string): Promise<CryptoKey> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(material));
   return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
@@ -49,20 +58,7 @@ export async function encryptSecret(plain: string): Promise<string> {
   return `${PREFIX}${toBase64(iv)}:${toBase64(new Uint8Array(cipher))}`;
 }
 
-export async function decryptSecret(stored: string | null | undefined): Promise<string | null> {
-  if (!stored) {
-    return null;
-  }
-  if (stored.startsWith(PLAIN_PREFIX)) {
-    return stored.slice(PLAIN_PREFIX.length);
-  }
-  if (!stored.startsWith(PREFIX)) {
-    return stored;
-  }
-  const material = keyMaterial();
-  if (!material) {
-    return null;
-  }
+async function decryptWith(material: string, stored: string): Promise<string | null> {
   const [ivPart, cipherPart] = stored.slice(PREFIX.length).split(":");
   if (!ivPart || !cipherPart) {
     return null;
@@ -78,6 +74,66 @@ export async function decryptSecret(stored: string | null | undefined): Promise<
   } catch {
     return null;
   }
+}
+
+export async function decryptSecret(stored: string | null | undefined): Promise<string | null> {
+  if (!stored) {
+    return null;
+  }
+  if (stored.startsWith(PLAIN_PREFIX)) {
+    return stored.slice(PLAIN_PREFIX.length);
+  }
+  if (!stored.startsWith(PREFIX)) {
+    return stored;
+  }
+  const material = keyMaterial();
+  if (material) {
+    const plain = await decryptWith(material, stored);
+    if (plain !== null) {
+      return plain;
+    }
+  }
+  const previous = previousKeyMaterial();
+  if (previous) {
+    return decryptWith(previous, stored);
+  }
+  return null;
+}
+
+export interface SecretReencryptResult {
+  value: string | null;
+  /** True when the stored value was rewritten with the current key. */
+  rotated: boolean;
+  /** True when neither the current nor the previous key can read the value. */
+  unreadable: boolean;
+}
+
+/**
+ * Rewrites one stored secret with the current key. Plaintext from before a key
+ * existed is encrypted; a value written with `TORRIX_SECRET_KEY_PREVIOUS` is
+ * moved onto `TORRIX_SECRET_KEY`. Without a key the value is returned untouched.
+ */
+export async function reencryptSecret(stored: string | null | undefined): Promise<SecretReencryptResult> {
+  if (!stored) {
+    return { value: null, rotated: false, unreadable: false };
+  }
+  if (!keyMaterial()) {
+    return { value: stored, rotated: false, unreadable: false };
+  }
+  if (!stored.startsWith(PREFIX)) {
+    const plain = stored.startsWith(PLAIN_PREFIX) ? stored.slice(PLAIN_PREFIX.length) : stored;
+    return { value: await encryptSecret(plain), rotated: true, unreadable: false };
+  }
+  const material = keyMaterial()!;
+  if ((await decryptWith(material, stored)) !== null) {
+    return { value: stored, rotated: false, unreadable: false };
+  }
+  const previous = previousKeyMaterial();
+  const viaPrevious = previous ? await decryptWith(previous, stored) : null;
+  if (viaPrevious === null) {
+    return { value: stored, rotated: false, unreadable: true };
+  }
+  return { value: await encryptSecret(viaPrevious), rotated: true, unreadable: false };
 }
 
 export type SecretKeySource = "env" | "file" | "created" | "none";

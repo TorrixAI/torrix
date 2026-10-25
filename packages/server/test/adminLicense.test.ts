@@ -166,3 +166,67 @@ test("settings permissions reports the allowed tabs", async () => {
   }
 });
 
+
+test("a license on the Community build is accepted with a plain notice that the paid features are missing", async () => {
+  const signer = await licenseSigner("notice");
+  const ctx = await createTestApp({}, { trustedKeys: [signer.trusted] });
+  try {
+    const key = await adminKey(ctx, "notice@torrix.test");
+
+    const before = (await ctx.app.inject({ method: "GET", url: "/api/license", headers: bearer(key) })).json() as { notice: string | null; paid_build: boolean };
+    expect(before.paid_build).toBe(false);
+    expect(before.notice).toBeNull();
+
+    const license = await signer.sign({ edition: "pro", licensee: "Acme", expires_at: "2099-01-01T00:00:00.000Z" });
+    const activated = (await ctx.app.inject({ method: "POST", url: "/api/license", headers: bearer(key), payload: { key: license } })).json() as {
+      ok: boolean;
+      edition: string;
+      notice: string | null;
+      paid_build: boolean;
+    };
+    expect(activated).toMatchObject({ ok: true, edition: "pro", paid_build: false });
+    expect(activated.notice).toContain("Pro license is active");
+    expect(activated.notice).toContain("does not include Pro features");
+    expect(activated.notice).toContain("keep your data volume and license key");
+    expect(activated.notice).not.toContain("—");
+
+    const info = (await ctx.app.inject({ method: "GET", url: "/api/license", headers: bearer(key) })).json() as { notice: string | null };
+    expect(info.notice).toBe(activated.notice);
+
+    const enterprise = await signer.sign({ edition: "enterprise", expires_at: "2099-01-01T00:00:00.000Z" });
+    const upgraded = (await ctx.app.inject({ method: "POST", url: "/api/license", headers: bearer(key), payload: { key: enterprise } })).json() as { notice: string };
+    expect(upgraded.notice).toContain("Enterprise license is active");
+
+    await ctx.app.inject({ method: "DELETE", url: "/api/license", headers: bearer(key) });
+    const cleared = (await ctx.app.inject({ method: "GET", url: "/api/license", headers: bearer(key) })).json() as { notice: string | null };
+    expect(cleared.notice).toBeNull();
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test("pages that upsell stop asking a licensed Community build to activate a license", async () => {
+  const ctx = await createTestApp();
+  try {
+    const session = await seedSession(ctx);
+    const agents = await ctx.app.inject({ method: "GET", url: "/ui/agents/observed", headers: bearer(session.key) });
+    expect(agents.body).toContain("Activate a license");
+    expect(agents.body).not.toContain("Your Pro license is active");
+    const governance = await ctx.app.inject({ method: "GET", url: "/ui/governance", headers: bearer(session.key) });
+    expect(governance.body).toContain("See what Pro adds");
+    expect(governance.body).not.toContain("How to switch");
+
+    ctx.config.license.override("pro");
+    const licensedAgents = await ctx.app.inject({ method: "GET", url: "/ui/agents/observed", headers: bearer(session.key) });
+    expect(licensedAgents.body).toContain("Your Pro license is active, but this server runs the Community build.");
+    expect(licensedAgents.body).toContain("keep your data volume and license key");
+    expect(licensedAgents.body).toContain("How to switch");
+    expect(licensedAgents.body).not.toContain("Activate a license");
+    expect(licensedAgents.body).not.toContain("—");
+    const licensedGovernance = await ctx.app.inject({ method: "GET", url: "/ui/governance", headers: bearer(session.key) });
+    expect(licensedGovernance.body).toContain("Included in your Pro license");
+    expect(licensedGovernance.body).toContain("How to switch");
+  } finally {
+    await ctx.cleanup();
+  }
+});

@@ -65,6 +65,12 @@ The paid editions run on your servers too and keep your Community data when you 
 docker run -d --name torrix -p 8088:8088 -v torrix_data:/data gettorrixai/torrix:latest
 ```
 
+Or install the single binary on Linux or macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TorrixAI/torrix/main/deploy/install.sh | sh
+```
+
 Open http://localhost:8088, create your account, and go to **Integrations** to connect your first
 app. Every integration card generates its own API key and gives you a command to copy.
 
@@ -106,6 +112,7 @@ The call goes to OpenAI as usual, and shows up in Torrix under **Runs** a moment
 | [Editions and licensing](docs/editions-and-licensing.md) | Community, Pro and Enterprise, and what the license allows |
 | [Pro and Enterprise features](docs/pro-and-enterprise.md) | The judge, routing, policies, the agent control plane and SSO |
 | [How Torrix compares](docs/comparison.md) | Torrix next to Langfuse, Helicone and LangSmith, and how to switch |
+| [Moving from Helicone or Langfuse](docs/migrating-from-helicone-langfuse.md) | Drop-in proxy and OpenTelemetry migration steps |
 | [FAQ](docs/faq.md) | Common questions |
 | [Changelog](CHANGELOG.md) | What changed in each release and what to do when upgrading |
 

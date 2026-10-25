@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.bun-cache/
 *.sqlite*
 .env
 .idea/
@@ -10,6 +11,8 @@ dist/
 uv.lock
 ~$*
 torrix-media/
+torrix.secret.key
+db.preference.json
 
 # .NET build output (.NET SDK packages)
 bin/

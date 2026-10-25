@@ -11,6 +11,7 @@ services:
     environment:
       # Paid editions come from a signed license key, not an edition variable.
       # TORRIX_LICENSE_KEY: <license>
+      # TORRIX_LICENSE_REVOCATIONS: <url or file> # opt-in signed revocation list
       DOCKER_CONTAINER: "true"
       DB_PATH: /data/torrix.sqlite
       TORRIX_TELEMETRY: "false"
@@ -20,6 +21,7 @@ services:
       # TORRIX_ALLOW_SIGNUP: "true"             # let anyone who can reach the console sign up
       # TORRIX_LOCAL_HOST: "mcp.internal:3000"  # reach a server on your network
       # TORRIX_SECRET_KEY: <long random string> # needed with Postgres; SQLite creates a key file
+      # TORRIX_SECRET_KEY_PREVIOUS: <old key>   # set while rotating, remove after the sweep re-encrypts
     volumes:
       - torrix_data:/data
     healthcheck:

@@ -1,6 +1,6 @@
 {
   "name": "torrix-sdk",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "TypeScript SDK for Torrix, self-hosted observability for AI agents: record OpenAI, Anthropic and Vercel AI SDK calls with zero dependencies",
   "license": "MIT",
   "keywords": [

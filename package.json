@@ -1,6 +1,6 @@
 {
   "name": "torrix",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -11,6 +11,9 @@
     "test": "bun run --cwd packages/server test",
     "test:sdk": "bun run --cwd packages/sdk-ts test",
     "typecheck": "bun run --cwd packages/server typecheck",
+    "ledger:verify": "bun scripts/verify-ledger.ts",
+    "compile": "bun scripts/compile.ts",
+    "compile:all": "bun scripts/compile.ts --all",
     "test:plugin": "bun run --cwd packages/claude-code-plugin test",
     "test:py": "cd packages/sdk-python && python -m unittest discover -s tests -t ."
   }

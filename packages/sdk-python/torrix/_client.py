@@ -162,7 +162,7 @@ class TorrixClient:
     def _send(self, batch: List[Dict[str, Any]], *, timeout: float) -> List[str]:
         url = f"{self.base_url}/api/ingest"
         payload = json.dumps({"records": batch}).encode("utf-8")
-        headers = {"content-type": "application/json", "user-agent": "torrix-sdk/1.2.1"}
+        headers = {"content-type": "application/json", "user-agent": "torrix-sdk/1.3.0"}
         if self.api_key:
             headers["authorization"] = f"Bearer {self.api_key}"
         if self.project:

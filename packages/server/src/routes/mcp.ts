@@ -14,7 +14,12 @@ export interface McpDeps {
   host?: ExtensionHost;
 }
 
-const PROTOCOL_VERSION = "2025-06-18";
+const LEGACY_PROTOCOL_VERSION = "2025-06-18";
+const MODERN_PROTOCOL_VERSION = "2026-07-28";
+const SUPPORTED_PROTOCOL_VERSIONS = [MODERN_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION];
+const META_VERSION = "io.modelcontextprotocol/protocolVersion";
+const META_SERVER_INFO = "io.modelcontextprotocol/serverInfo";
+const NAMED_METHODS = new Set(["tools/call", "resources/read", "prompts/get"]);
 const SESSION_TTL_MS = 30 * 60 * 1000;
 
 interface JsonRpcRequest {
@@ -123,16 +128,125 @@ const TOOLS: ToolSpec[] = [
 ];
 
 /**
- * Model Context Protocol server over streamable HTTP. Exposes read-only
- * observability tools so an agent can answer "what did we spend, and what did
- * the model actually say" without a bespoke integration. Sessions follow the
- * Streamable HTTP transport: `Mcp-Session-Id` on initialize, SSE via GET,
- * termination via DELETE. Every tools/call is itself recorded as a run so MCP
+ * Model Context Protocol server over streamable HTTP, dual-era: a request that
+ * declares its protocol version (per-request `_meta` or the MCP-Protocol-Version
+ * header) is served statelessly per revision 2026-07-28; an `initialize` request
+ * selects the legacy 2025-06-18 session path (`Mcp-Session-Id`, SSE via GET,
+ * termination via DELETE). Exposes read-only observability tools so an agent can
+ * answer "what did we spend, and what did the model actually say" without a
+ * bespoke integration. Every tools/call is itself recorded as a run so MCP
  * traffic shows up in the same analytics as everything else.
  */
 export async function mcpRoute(app: FastifyInstance, deps: McpDeps): Promise<void> {
   const { repos, config } = deps;
   const sessions = new Map<string, { createdAt: number; lastSeenAt: number }>();
+
+  const serverInfo = (): { name: string; version: string } => ({ name: "torrix", version: config.version });
+
+  const headerValue = (request: FastifyRequest, name: string): string =>
+    String((request.headers as Record<string, unknown>)[name] ?? "").trim();
+
+  const metaOf = (rpc: JsonRpcRequest): Record<string, unknown> => {
+    const meta = rpc.params?._meta;
+    return meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
+  };
+
+  const declaredVersion = (request: FastifyRequest, rpc: JsonRpcRequest): string | null => {
+    const fromMeta = metaOf(rpc)[META_VERSION];
+    if (typeof fromMeta === "string" && fromMeta.trim()) {
+      return fromMeta.trim();
+    }
+    return headerValue(request, "mcp-protocol-version") || null;
+  };
+
+  /** Modern requests declare their version per request; initialize selects the legacy session path. */
+  const isModern = (request: FastifyRequest, rpc: JsonRpcRequest): boolean =>
+    rpc.method !== "initialize" && declaredVersion(request, rpc) !== null;
+
+  const decodeHeaderValue = (raw: string): string => {
+    const match = /^=\?base64\?(.+)\?=$/.exec(raw);
+    if (!match) {
+      return raw;
+    }
+    try {
+      return Buffer.from(match[1], "base64").toString("utf8");
+    } catch {
+      return raw;
+    }
+  };
+
+  const validateModern = (
+    request: FastifyRequest,
+    rpc: JsonRpcRequest,
+  ): { status: number; code: number; message: string; data?: unknown } | null => {
+    const metaVersion = metaOf(rpc)[META_VERSION];
+    const fromMeta = typeof metaVersion === "string" ? metaVersion.trim() : "";
+    const fromHeader = headerValue(request, "mcp-protocol-version");
+    if (fromMeta && fromHeader && fromMeta !== fromHeader) {
+      return {
+        status: 400,
+        code: -32020,
+        message: `Header mismatch: MCP-Protocol-Version header value '${fromHeader}' does not match body value '${fromMeta}'`,
+      };
+    }
+    const version = fromMeta || fromHeader;
+    if (!SUPPORTED_PROTOCOL_VERSIONS.includes(version)) {
+      return {
+        status: 400,
+        code: -32022,
+        message: "Unsupported protocol version",
+        data: { supported: SUPPORTED_PROTOCOL_VERSIONS, requested: version },
+      };
+    }
+    const methodHeader = headerValue(request, "mcp-method");
+    if (!methodHeader) {
+      return { status: 400, code: -32020, message: "Header mismatch: the Mcp-Method header is required on every request" };
+    }
+    if (methodHeader !== rpc.method) {
+      return {
+        status: 400,
+        code: -32020,
+        message: `Header mismatch: Mcp-Method header value '${methodHeader}' does not match body value '${rpc.method ?? ""}'`,
+      };
+    }
+    if (rpc.method && NAMED_METHODS.has(rpc.method)) {
+      const raw = headerValue(request, "mcp-name");
+      if (!raw) {
+        return { status: 400, code: -32020, message: `Header mismatch: the Mcp-Name header is required for ${rpc.method}` };
+      }
+      const expected = rpc.method === "tools/call" ? str(rpc.params?.name) : str(rpc.params?.uri);
+      if (decodeHeaderValue(raw) !== (expected ?? "")) {
+        return {
+          status: 400,
+          code: -32020,
+          message: `Header mismatch: Mcp-Name header value '${raw}' does not match body value '${expected ?? ""}'`,
+        };
+      }
+    }
+    return null;
+  };
+
+  /** Every modern result carries resultType, the server identity, and list caching hints. */
+  const shapeModern = (response: unknown, method: string): unknown => {
+    if (!response || typeof response !== "object") {
+      return response;
+    }
+    const record = response as Record<string, unknown>;
+    const result = record.result;
+    if (!result || typeof result !== "object") {
+      return response;
+    }
+    const shaped: Record<string, unknown> = {
+      ...(result as Record<string, unknown>),
+      resultType: "complete",
+      _meta: { [META_SERVER_INFO]: serverInfo() },
+    };
+    if (method === "tools/list") {
+      shaped.ttlMs = 60_000;
+      shaped.cacheScope = "public";
+    }
+    return { ...record, result: shaped };
+  };
 
   const sweepSessions = (): void => {
     const cutoff = Date.now() - SESSION_TTL_MS;
@@ -179,6 +293,49 @@ export async function mcpRoute(app: FastifyInstance, deps: McpDeps): Promise<voi
     const batch = Array.isArray(payload) ? payload : payload ? [payload] : [];
     if (!batch.length) {
       return reply.code(400).send(jsonRpcError(null, -32600, "invalid request"));
+    }
+
+    // Modern (2026-07-28) requests are self-contained: no session, one message per
+    // POST, and the transport headers are validated against the body. The legacy
+    // session path below stays for 2025-06-18 clients.
+    const first = batch[0];
+    if (isModern(request, first)) {
+      if (batch.length > 1) {
+        return reply.code(400).send(jsonRpcError(null, -32600, "invalid request: this revision carries one message per POST"));
+      }
+      const validation = validateModern(request, first);
+      if (validation) {
+        return reply.code(validation.status).send(jsonRpcError(first.id ?? null, validation.code, validation.message, validation.data));
+      }
+      if (first.method === "server/discover") {
+        return reply.send(
+          shapeModern(
+            {
+              jsonrpc: "2.0",
+              id: first.id ?? null,
+              result: {
+                supportedVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
+                capabilities: { tools: { listChanged: false } },
+                instructions: "Torrix observability tools: spend, runs, traces, sessions, cost and anomalies.",
+                ttlMs: 3_600_000,
+                cacheScope: "public",
+              },
+            },
+            "server/discover",
+          ),
+        );
+      }
+      if (first.method === "ping" || first.method === "logging/setLevel") {
+        return reply.code(404).send(jsonRpcError(first.id ?? null, -32601, `method not found: ${first.method}`));
+      }
+      const response = await dispatch(first, auth, deps, null);
+      if (response === undefined) {
+        return reply.code(202).send();
+      }
+      if ((response as { error?: { code?: number } }).error?.code === -32601) {
+        return reply.code(404).send(response);
+      }
+      return reply.send(shapeModern(response, first.method ?? ""));
     }
 
     const responses: unknown[] = [];
@@ -239,7 +396,8 @@ export async function mcpRoute(app: FastifyInstance, deps: McpDeps): Promise<voi
     return reply.send({
       name: "torrix",
       version: config.version,
-      protocolVersion: PROTOCOL_VERSION,
+      protocolVersion: LEGACY_PROTOCOL_VERSION,
+      protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
       transport: "streamable-http",
       session: session.id,
       tools: allTools().map((t) => t.name),
@@ -266,14 +424,14 @@ export async function mcpRoute(app: FastifyInstance, deps: McpDeps): Promise<voi
     const id = rpc.id ?? null;
     switch (rpc.method) {
       case "initialize": {
-        const requested = String((rpc.params?.protocolVersion as string | undefined) ?? PROTOCOL_VERSION);
+        const requested = String((rpc.params?.protocolVersion as string | undefined) ?? LEGACY_PROTOCOL_VERSION);
         const session = sessionId ?? crypto.randomUUID();
         sessions.set(session, { createdAt: Date.now(), lastSeenAt: Date.now() });
         return {
           jsonrpc: "2.0",
           id,
           result: {
-            protocolVersion: requested === PROTOCOL_VERSION ? requested : PROTOCOL_VERSION,
+            protocolVersion: requested === LEGACY_PROTOCOL_VERSION ? requested : LEGACY_PROTOCOL_VERSION,
             capabilities: { tools: { listChanged: false } },
             serverInfo: { name: "torrix", version: context.config.version },
             sessionId: session,
@@ -550,6 +708,6 @@ function clampInt(value: unknown, fallback: number, min: number, max: number): n
   return Math.min(max, Math.max(min, Math.floor(n)));
 }
 
-function jsonRpcError(id: string | number | null, code: number, message: string): unknown {
-  return { jsonrpc: "2.0", id, error: { code, message } };
+function jsonRpcError(id: string | number | null, code: number, message: string, data?: unknown): unknown {
+  return { jsonrpc: "2.0", id, error: { code, message, ...(data === undefined ? {} : { data }) } };
 }

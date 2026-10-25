@@ -58,7 +58,7 @@ await torrix.runContext({ sessionId: "ses_1", agentName: "planner" }, async () =
 | `health()` / `stats()` | Server reachability / queue counters. |
 | `torrixMiddleware({ client })` | Vercel AI SDK middleware for `wrapLanguageModel`. |
 | `TorrixClient` | Low-level client for custom transports (`background: false` for synchronous ingest). |
-| `createAttestationVerifier(options)` | For MCP servers behind the Torrix gateway: verify `x-torrix-attestation` and reject calls that bypassed Torrix (also at `torrix/verify`). See [ENFORCED_ROUTING.md](../../ENFORCED_ROUTING.md). |
+| `createAttestationVerifier(options)` | For MCP servers behind the Torrix gateway: verify `x-torrix-attestation` and reject calls that bypassed Torrix (also at `torrix-sdk/verify`). See [ENFORCED_ROUTING.md](../../ENFORCED_ROUTING.md). |
 
 ## Streaming
 

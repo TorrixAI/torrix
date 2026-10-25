@@ -4,7 +4,7 @@ replicaCount: 1
 image:
   repository: gettorrixai/torrix
   pullPolicy: IfNotPresent
-  tag: "1.2.1"
+  tag: "1.3.0"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -88,7 +88,11 @@ config:
   allowSignup: false
   retentionDays: ""
   # With Postgres, set TORRIX_SECRET_KEY (use `env` or `existingSecret`) so saved credentials are
-  # encrypted. With the SQLite volume, Torrix creates a key file in the volume itself.
+  # encrypted. With the SQLite volume, Torrix creates a key file in the volume itself. To rotate the
+  # key, put the old one in TORRIX_SECRET_KEY_PREVIOUS, restart, and remove it once the sweep logs
+  # that it re-encrypted everything.
+  # Opt-in license revocation: pass TORRIX_LICENSE_REVOCATIONS (URL or file) through `env` or
+  # `existingSecret`; listed license serials return the instance to Community.
 
 livenessProbe:
   enabled: true

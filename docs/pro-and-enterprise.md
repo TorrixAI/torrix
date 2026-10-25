@@ -67,6 +67,26 @@ record of every decision.
 - **Policies** describe what is allowed, denied or needs approval, and they are versioned so you can
   see what changed. **Risk scoring** rates each action; the settings decide what a high or critical
   rating does.
+- **Policy packs** are reviewed starting points for procurement, finance and customer-data controls.
+  Install one under **Agents > Policies**; it creates ordinary editable policies: purchases at or
+  above 10,000 need approval and those at or above 50,000 are denied, bank-detail changes need
+  review, payments at or above 25,000 need review, vendor master changes need review, customer-data
+  exports need review and bulk exports at or above 10,000 records are denied. Installs skip
+  policies with the same name, so they are safe to repeat.
+- **Testing a policy before you turn it on.** On **Agents > Policies**, choose **Test against
+  history** while writing or editing a policy, or **Test turning off** on an existing one. Torrix
+  replays your recorded requests from the last 7, 30 or 90 days and shows how many would get a
+  different answer and which ones. Nothing is stored, no approval is used up, and no one is
+  notified. The same check is available as `POST /api/v1/policies/simulate`. Requests are replayed
+  against today's agents and delegations, so the result says how many already differ from what was
+  decided at the time.
+- **Observe-only mode.** Set a policy's **Mode** to observe only (or install a policy pack that way)
+  and it is checked on every live request but never blocks anything. Torrix records what it would
+  have decided, and the policy row shows how many requests it would have changed in the last 7
+  days. **What it saw** lists the requests, and **Start enforcing** turns it on after showing you
+  those numbers. Observe-only records are kept for 90 days, and the signed record of a decision notes
+  when an observe-only policy matched. A good order for a new rule is: test against history, observe
+  only for a few days, then enforce.
 - **Approvals** are how a human signs off on a held action. They are bound to the exact request, can
   be used once, and expire.
 - **The governed MCP gateway** is the main integration point. Register a downstream MCP server in
@@ -77,8 +97,22 @@ record of every decision.
   Only administrators register MCP servers. Torrix does not call private or loopback addresses by
   default, so for a server inside your network list its host in `TORRIX_LOCAL_HOST` (for example
   `mcp.internal:3000`) or set `TORRIX_ALLOW_PRIVATE_HOSTS=true`.
+- **Tool-definition pinning** protects approved tools from silent changes. Pin all tools or one tool
+  from **Agents > MCP servers > Tools**. Discovery compares the name, description, input schema and
+  annotations with the pinned hash; a change raises a drift alert on your configured alert channels
+  and the gateway holds calls to that tool until an administrator reviews and re-pins it.
+- **Per-grant revocation** lists every delegation grant token with its creation time, expiry and
+  status under **Grants** on a delegation. Revoking a grant denies it on the next call, and "revoke
+  all" invalidates every outstanding token for that delegation.
 - **Agents that do not speak MCP** can call the authorization endpoint before they act, and then
   proceed only on an allow.
+- **Agent identity providers** let an agent authenticate with its existing enterprise token instead
+  of a Torrix credential. An administrator registers an issuer and audience under **Agents >
+  Settings > Agent identity providers** (Entra Agent ID, Okta, AgentCore or a custom OIDC issuer)
+  and maps it to agents by their external identity provider and subject. Torrix verifies the token
+  signature against the issuer JWKS, checks the issuer, audience and expiry, resolves the agent, and
+  then runs the same delegation, policy and approval checks. The token proves who the agent is;
+  authority still comes from delegations and grants.
 
 Agents from any platform are governed the same way: Claude Code, opencode, Cursor, the OpenAI
 Agents SDK, LangGraph, n8n, or something you wrote yourself. The console has pages for the registry,
@@ -86,6 +120,65 @@ delegations, policies, approvals, MCP servers, the permission graph and the acti
 
 The cap counts **active** agents. Suspending, revoking or expiring an agent frees its place, so
 replacing an agent never needs an upgrade. Enterprise removes the cap.
+
+## Action ledger and evidence bundles (Pro)
+
+Decisions are only useful if you can prove them later. Every authorization decision, approval event
+and governed gateway execution is appended to a per-account hash chain:
+
+- `GET /api/v1/ledger` lists entries (filter by `kind`, `from`, `to`), newest first.
+- `GET /api/v1/ledger/verify` checks the sequence, previous hashes and recomputed hashes, and reports
+  the first broken entry.
+- `GET /api/v1/ledger/export` returns the full chain as one signed document.
+- `GET /api/v1/ledger/:id/bundle` returns one signed evidence bundle: the agent, principal,
+  delegation, action, resource, tool, request hash, risk, policy, decision, approval and outcome.
+
+Bundles and exports are signed with the instance gateway key (ES256) and include the signing public
+key. Verify one offline with the published JWKS so the signer cannot be swapped with the bundle:
+
+```bash
+curl -fsS http://localhost:8088/.well-known/jwks.json -o jwks.json
+bun run ledger:verify evidence-bundle.json --jwks jwks.json
+```
+
+The same command verifies a chain export. Administrators can read another account's chain by adding
+`?user_id=`; everyone else sees their own. The ledger is stored in your database and is never sent
+anywhere.
+
+## ID-JAG and Enterprise-Managed Authorization (Pro)
+
+Torrix can act as the resource authorization server in an Enterprise-Managed Authorization (EMA)
+deployment. The enterprise IdP issues an Identity Assertion JWT Authorization Grant (ID-JAG) to the
+MCP client. The client exchanges it at Torrix and calls the gateway with the short-lived Torrix
+access token:
+
+1. An administrator registers the IdP under **Agents > Settings > Agent identity providers** with
+   kind **ID-JAG**, the issuer, the audience that identifies Torrix, and the agent identity provider
+   used by the registered agents. The defaults read `client_id` as the agent and `sub` as the human
+   principal; `agent_claim`, `principal_claim`, `principal_provider` and `token_ttl_seconds` can be
+   changed through `/api/v1/agent-identity-providers`.
+2. The agent and the principal must already exist, and an active **delegation** must link them. The
+   ID-JAG proves who the user is; the delegation still decides what the agent may do.
+3. The MCP client exchanges the assertion:
+
+   ```bash
+   curl -s http://localhost:8088/oauth/token \
+     -H 'content-type: application/x-www-form-urlencoded' \
+     --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer' \
+     --data-urlencode 'assertion=<ID-JAG>' \
+     --data-urlencode 'client_id=<agent client id>'
+   ```
+
+   The RFC 8693 token-exchange form (`grant_type=urn:ietf:params:oauth:grant-type:token-exchange`,
+   `subject_token`, `subject_token_type=urn:ietf:params:oauth:token-type:id-jag`) returns the same
+   token with `issued_token_type`.
+4. The response carries a `trxj_` bearer token, valid for five minutes by default and never longer
+   than the assertion or delegation. Use it at the gateway or `/api/v1/authorize` exactly like an
+   agent credential. It is bound to the end-user principal, so a caller cannot substitute another
+   principal, and every action is still checked against delegations, policies, risk and approvals.
+   Revoke it at `POST /oauth/revoke` with the token.
+
+Assertions are single-use: the `jti` is recorded, so a replay is rejected.
 
 ## Enterprise extras
 
@@ -99,13 +192,22 @@ replacing an agent never needs an upgrade. Enterprise removes the cap.
 - **Business record connectors**: resolve records from SAP, ServiceNow or Salesforce before an agent
   acts on them, using the customer's own OAuth2 credentials.
 - **Directory sync**: bring people and service identities in from Entra ID, Okta or any SCIM 2.0
-  directory.
+  directory. Sync follows Entra `@odata.nextLink`, Okta `Link` and SCIM `startIndex` paging, marks
+  users missing from a complete walk as disabled and reactivates them when they return. `max_pages`
+  bounds a run; a truncated walk never disables anyone.
 - **Single sign-on**: sign in to the console with your own OIDC provider, with optional automatic
   user provisioning. Configure it with environment variables or under **Settings > SSO**.
 - **Compliance and audit**: the EU AI Act readiness report, downloadable as Markdown or CSV, and the
   audit log export.
 - **Scheduled exports**: ship new runs as NDJSON to your own S3 or GCS bucket on a schedule, with
   identity fields removed.
+- **SIEM export**: send authorization decisions, approvals, gateway executions and audit events to
+  Splunk HTTP Event Collector or Microsoft Sentinel. Records follow the OCSF Authorization and API
+  Activity shapes, with Torrix fields under `unmapped.torrix`. Configure it under **Governance > SIEM
+  export**; only administrators can add destinations. Delivery runs every minute, retries failures
+  with backoff, and keeps credentials encrypted with the instance key. Use a HEC token for Splunk, or
+  a bearer token or Entra client credentials for Sentinel. Endpoints go through the outbound guard,
+  so metadata and private addresses are refused unless the instance allows them.
 
 ## Trying, upgrading and asking
 

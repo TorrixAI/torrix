@@ -267,3 +267,33 @@ test("savings endpoint returns ranked recommendations and honors the project fil
     await ctx.cleanup();
   }
 });
+
+test("ingest records a prompt hash so cache savings cover the SDK path", async () => {
+  const ctx = await createTestApp();
+  try {
+    const session = await seedSession(ctx);
+    await seedProject(ctx, session.user.id);
+    const body = { model: "gpt-4o", messages: [{ role: "user", content: "the same question every time" }] };
+    for (let i = 0; i < 3; i += 1) {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/api/ingest",
+        headers: bearer(session.key),
+        payload: {
+          records: [
+            { id: `sdk-cache-${i}`, model: "gpt-4o", input_tokens: 5_000, output_tokens: 50, request: { body } },
+          ],
+        },
+      });
+      expect(res.statusCode).toBe(200);
+    }
+    const stored = await ctx.repos.runs.getById("sdk-cache-0", session.user.id);
+    expect(stored?.prompt_hash).toBeTruthy();
+
+    const res = await ctx.app.inject({ method: "GET", url: "/api/insights/savings?days=30", headers: bearer(session.key) });
+    const recommendations = (res.json() as { recommendations: Array<{ kind: string }> }).recommendations;
+    expect(recommendations.some((item) => item.kind === "prompt_cache")).toBe(true);
+  } finally {
+    await ctx.cleanup();
+  }
+});

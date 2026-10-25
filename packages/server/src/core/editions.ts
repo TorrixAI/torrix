@@ -78,10 +78,19 @@ export type GrantSource = "license" | "override";
 export interface EditionGrant {
   edition: "pro" | "enterprise";
   licensee: string | null;
+  /** Stable per-customer marker signed into the license; null on older keys. */
+  customer?: string | null;
+  /** Unique license id used by the revocation list; null on older keys. */
+  serial?: string | null;
   expiresAt: string | null;
   source: GrantSource;
   /** Per-license numeric limits signed into the key, for example `max_agents` for a trial. */
   limits?: Readonly<Record<string, number>>;
+}
+
+export interface LicenseRevocation {
+  serial: string;
+  reason: string | null;
 }
 
 /**
@@ -95,6 +104,7 @@ export class LicenseState {
   readonly trustedKeys: readonly TrustedKey[];
   private grant: EditionGrant | null = null;
   private grantExpiresMs = Number.POSITIVE_INFINITY;
+  private revokedLicense: LicenseRevocation | null = null;
   private readonly userLimitOverride: number | null;
   private readonly retentionDaysOverride: number | null;
   private readonly configs = new Map<Edition, EditionConfig>();
@@ -151,9 +161,26 @@ export class LicenseState {
   }
 
   apply(grant: EditionGrant): void {
+    if (this.revokedLicense && grant.serial !== this.revokedLicense.serial) {
+      this.revokedLicense = null;
+    }
     const expires = grant.expiresAt ? Date.parse(grant.expiresAt) : Number.NaN;
     this.grant = grant;
     this.grantExpiresMs = Number.isFinite(expires) ? expires : Number.POSITIVE_INFINITY;
+  }
+
+  /** The last license this instance saw on a signed revocation list. */
+  revocation(): LicenseRevocation | null {
+    return this.revokedLicense;
+  }
+
+  /** Drops the active license and records why, so the console can explain it. */
+  revoke(reason: string | null): void {
+    const serial = this.grant?.serial;
+    if (serial) {
+      this.revokedLicense = { serial, reason };
+    }
+    this.clear();
   }
 
   /** Programmatic grant for tests and embedded hosts; never reachable from env. */

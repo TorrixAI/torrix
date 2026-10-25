@@ -60,16 +60,30 @@ every option.
 
 ## Single binary
 
-Torrix compiles to one executable with no runtime to install:
+Every GitHub release attaches one executable per platform, with no runtime to install:
+
+| Asset | Platform |
+|---|---|
+| `torrix-linux-x64`, `torrix-linux-arm64` | Linux |
+| `torrix-darwin-x64`, `torrix-darwin-arm64` | macOS |
+| `torrix-windows-x64.exe` | Windows |
+| `SHA256SUMS` | checksums for the files above |
+
+On Linux and macOS, `deploy/install.sh` downloads the matching release binary and can register it
+as a systemd or launchd service:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TorrixAI/torrix/main/deploy/install.sh | sh
+```
+
+Build the binaries yourself from a checkout:
 
 ```bash
 bun install
-bun run --cwd packages/server compile   # writes dist/torrix
-./dist/torrix
+bun run compile       # host platform -> dist/torrix-<os>-<arch>
+bun run compile:all   # every platform
+./dist/torrix-linux-x64
 ```
-
-On Linux and macOS, `deploy/install.sh` downloads a published release binary and can register it
-as a systemd or launchd service.
 
 ## From source
 
@@ -82,7 +96,7 @@ bun run start      # or `bun run dev` to restart on code changes
 
 | Setup | How |
 |---|---|
-| SQLite (default) | stored at `torrix.sqlite` in the working folder, or wherever `DB_PATH` points |
+| SQLite (default) | stored at `torrix.sqlite` in the working folder, or wherever `DB_PATH` points. From a source checkout the default is always `packages/server/torrix.sqlite`, whichever folder you start it from |
 | Postgres | set `TORRIX_DATABASE_URL=postgres://user:password@host:5432/torrix` |
 | Switch live | an administrator can move between SQLite and Postgres under **Settings > Database engine**. Torrix copies the admin account over so you stay signed in, and a failed switch leaves the old database untouched |
 

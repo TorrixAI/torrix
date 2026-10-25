@@ -4,7 +4,7 @@ import type { ExtensionHost } from "../core/extensionHost";
 import type { Repositories } from "../repos";
 import { authenticateKey, authorizeKeyScope, extractBearer } from "../lib/auth";
 import { calculateCost, detectProvider } from "../lib/pricing";
-import { extractAnthropic, extractAutoName, extractGeneric, extractMedia, extractOpenAI, type ToolCall } from "../lib/extract";
+import { extractAnthropic, extractAutoName, extractGeneric, extractMedia, extractOpenAI, promptHash, type ToolCall } from "../lib/extract";
 import { persistMedia } from "../lib/media";
 import { emitRun } from "../lib/events";
 import { buildRunRow, makeEvent } from "../lib/runMapper";
@@ -314,6 +314,7 @@ export async function ingestRoute(app: FastifyInstance, deps: IngestDeps): Promi
         name: record.name ?? autoName ?? undefined,
         provider,
         model: model ?? undefined,
+        prompt_hash: requestBody ? (promptHash(serializeBody(requestBody) ?? "") ?? undefined) : undefined,
         input_tokens: inputTokens ?? undefined,
         output_tokens: outputTokens ?? undefined,
         thinking_tokens: thinkingTokens ?? undefined,
@@ -369,6 +370,7 @@ export async function ingestRoute(app: FastifyInstance, deps: IngestDeps): Promi
       const masked = applyMasking(govSettings, {
         request: runData.request_body ?? null,
         response: responseBodyForLog ?? null,
+        name: runData.name ?? null,
         thinking: thinkingForLog,
         toolCalls: toolCallsForLog,
       });
@@ -376,6 +378,9 @@ export async function ingestRoute(app: FastifyInstance, deps: IngestDeps): Promi
         runData.request_body = masked.request ?? undefined;
         runData.pii_masked = true;
         runData.pii_findings = JSON.stringify(masked.findings);
+      }
+      if (masked.name) {
+        runData.name = masked.name;
       }
       if (masked.request) {
         const idx = events.findIndex((e) => e.type === "request");

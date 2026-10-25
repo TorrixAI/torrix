@@ -83,6 +83,34 @@ test("guardedFetch returns the response for an allowed address", async () => {
   }
 });
 
+test("guardedFetch connects to the address it validated, not a fresh lookup", async () => {
+  let seenHost = "";
+  let lookups = 0;
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      seenHost = req.headers.get("host") ?? "";
+      return Response.json({ ok: true });
+    },
+  });
+  const policy: OutboundPolicy = {
+    allowPrivate: false,
+    allowedHosts: [`pinned.test:${server.port}`],
+    resolve: async () => {
+      lookups += 1;
+      return ["127.0.0.1"];
+    },
+  };
+  try {
+    const res = await guardedFetch(`http://pinned.test:${server.port}/api`, {}, policy);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(seenHost).toBe(`pinned.test:${server.port}`);
+    expect(lookups).toBe(1);
+  } finally {
+    server.stop(true);
+  }
+});
+
 test("the policy reads the operator's environment", () => {
   expect(outboundPolicy({})).toMatchObject({ allowPrivate: false, allowedHosts: [] });
   expect(outboundPolicy({ TORRIX_ALLOW_PRIVATE_HOSTS: "true" }).allowPrivate).toBe(true);

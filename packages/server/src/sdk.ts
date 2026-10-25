@@ -28,6 +28,9 @@ export {
   type EditionConfig,
   type ServerConfig,
 } from "./core/config";
+export { TRUSTED_LICENSE_KEYS } from "./core/licenseKeys";
+export type { TrustedKey } from "./core/editions";
+export { refreshLicenseRevocations, verifyLicense, verifyRevocationList } from "./lib/license";
 export type { MigrationDirs, MigrationFiles } from "./db/migrate";
 export type { DbClient } from "./db/client";
 export { sqlAll, sqlGet, sqlRun } from "./db/sql";
@@ -118,7 +121,8 @@ export { scanAndMask } from "./lib/pii";
 export { calculateCost, getCostComparison } from "./lib/pricing";
 export { buildRunRow, makeEvent } from "./lib/runMapper";
 export { recommendSavings } from "./lib/savings";
-export { decryptSecret, encryptSecret, secretsEncrypted } from "./lib/secrets";
+export { decryptSecret, encryptSecret, reencryptSecret, secretsEncrypted } from "./lib/secrets";
+export type { SecretReencryptResult } from "./lib/secrets";
 export { checkForUpdate } from "./lib/updateCheck";
 export { agentTabs } from "./routes/agents";
 export { lockedFeature, lockedFeatures, type LockedFeature } from "./core/lockedFeatures";

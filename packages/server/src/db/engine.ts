@@ -21,6 +21,9 @@ export interface SqlEngine {
 }
 
 export function createSqliteEngine(database: Database): SqlEngine {
+  // SQLite has one write connection, so transactions are serialized here. Two
+  // concurrent check-then-insert requests must not both run inside one BEGIN.
+  let txChain: Promise<unknown> = Promise.resolve();
   return {
     dialect: "sqlite",
     exec(sql: string): void {
@@ -35,15 +38,19 @@ export function createSqliteEngine(database: Database): SqlEngine {
     all<T>(sql: string, params: SqlValue[] = []): T[] {
       return database.query(sql).all(...(params as never[])) as T[];
     },
-    async transaction(fn: () => void | Promise<void>): Promise<void> {
-      database.exec("BEGIN;");
-      try {
-        await fn();
-        database.exec("COMMIT;");
-      } catch (err) {
-        database.exec("ROLLBACK;");
-        throw err;
-      }
+    transaction(fn: () => void | Promise<void>): Promise<void> {
+      const run = txChain.then(async () => {
+        database.exec("BEGIN;");
+        try {
+          await fn();
+          database.exec("COMMIT;");
+        } catch (err) {
+          database.exec("ROLLBACK;");
+          throw err;
+        }
+      });
+      txChain = run.catch(() => {});
+      return run;
     },
     close(): void {
       database.close();

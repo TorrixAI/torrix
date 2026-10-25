@@ -30,6 +30,8 @@ const CATALOG: readonly LockedFeature[] = [
   { id: "compliance", label: "EU AI Act compliance", edition: "enterprise", pitch: "Generate EU AI Act readiness reports covering transparency, oversight and record keeping." },
   { id: "audit-export", label: "Audit export", edition: "enterprise", pitch: "Export the full audit trail for security reviews and regulators." },
   { id: "external-exports", label: "Run exports", edition: "enterprise", pitch: "Stream captured runs to your own S3 or GCS buckets on a schedule." },
+  { id: "siem-export", label: "SIEM export", edition: "enterprise", pitch: "Send authorization decisions, approvals and audit events to Splunk or Microsoft Sentinel as OCSF-shaped records." },
+  { id: "tool-pinning", label: "Tool definition pinning", edition: "enterprise", pitch: "Pin approved MCP tool definitions, alert on drift and hold changed tools until an administrator re-approves them." },
 ];
 
 const BY_ID = new Map(CATALOG.map((f) => [f.id, f]));

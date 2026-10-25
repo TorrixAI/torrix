@@ -19,11 +19,13 @@ documentation in October 2026. If something here is out of date, please open an 
 
 **Helicone.** Torrix reads Helicone's headers (`Helicone-Session-Id`, `Helicone-Request-Id`,
 `Helicone-User-Id`, `Helicone-Property-*` and more), so you can switch the base URL first and rename
-headers later. See [HTTP proxy](integrations/http-proxy.md#coming-from-helicone).
+headers later. See [HTTP proxy](integrations/http-proxy.md#coming-from-helicone) and the
+[migration guide](migrating-from-helicone-langfuse.md).
 
 **Langfuse or LangSmith with OpenTelemetry.** Point your OpenTelemetry exporter at Torrix's
 `/v1/traces` endpoint. GenAI spans become runs with tokens, cost and the parent and child links.
-See [OpenTelemetry](integrations/opentelemetry.md).
+See [OpenTelemetry](integrations/opentelemetry.md) and the
+[migration guide](migrating-from-helicone-langfuse.md).
 
 **Langfuse, LangSmith or another SDK.** Use the Torrix [Python](integrations/python-sdk.md) or
 [TypeScript](integrations/typescript-sdk.md) SDK. Both wrap the official OpenAI and Anthropic clients

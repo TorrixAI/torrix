@@ -92,12 +92,16 @@ export async function otelRoute(app: FastifyInstance, deps: OtelDeps): Promise<v
       const masked = applyMasking(govSettings, {
         prompt: draft.prompt,
         response: draft.response,
+        name: run.name ?? null,
         thinking: draft.thinking,
         toolCalls: draft.toolCalls,
       });
       if (masked.masked) {
         run.pii_masked = true;
         run.pii_findings = JSON.stringify(masked.findings);
+      }
+      if (masked.name) {
+        run.name = masked.name;
       }
 
       const events: Events[] = [makeEvent(run.id, "info", `otel · span ${span.spanId}`)];

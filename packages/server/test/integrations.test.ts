@@ -198,6 +198,48 @@ test("MCP proxy forwards JSON-RPC, logs only tools/call and falls back for LLM t
   }
 });
 
+test("MCP proxy forwards the 2026-07-28 stateless routing headers", async () => {
+  let seen: Headers | null = null;
+  const upstream = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      seen = req.headers;
+      const body = (await req.json()) as Record<string, unknown>;
+      return Response.json({ jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text: "ok" }] } });
+    },
+  });
+  const ctx = await createTestApp({ TORRIX_LOCAL_HOST: `127.0.0.1:${upstream.port}` });
+  try {
+    const session = await seedSession(ctx);
+    await seedProject(ctx, session.user.id);
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/mcp/proxy",
+      headers: {
+        ...bearer(session.key),
+        "x-target-mcp-url": `http://127.0.0.1:${upstream.port}/mcp`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2026-07-28",
+        "mcp-method": "tools/call",
+        "mcp-name": "search",
+        "mcp-param-q": "hello",
+      },
+      payload: jsonRpc(1, "tools/call", { name: "search", arguments: { q: "hello" } }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(seen).not.toBeNull();
+    expect(seen!.get("mcp-protocol-version")).toBe("2026-07-28");
+    expect(seen!.get("mcp-method")).toBe("tools/call");
+    expect(seen!.get("mcp-name")).toBe("search");
+    expect(seen!.get("mcp-param-q")).toBe("hello");
+    expect(seen!.get("mcp-session-id")).toBeNull();
+  } finally {
+    upstream.stop(true);
+    await ctx.cleanup();
+  }
+});
+
 test("OTLP maps cache tokens and resolves parent spans within a trace", async () => {
   const ctx = await createTestApp();
   try {

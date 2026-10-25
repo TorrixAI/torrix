@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { TorrixClient } from "../src/client.js";
 import { runContext } from "../src/context.js";
 import type { TorrixRecord } from "../src/types.js";
@@ -46,7 +47,8 @@ describe("TorrixClient", () => {
     expect(captured.length).toBe(1);
     expect(captured[0].headers.authorization).toBe("Bearer trxk_test");
     expect(captured[0].headers["x-torrix-project"]).toBe("demo");
-    expect(captured[0].headers["user-agent"]).toBe("torrix-sdk/1.0.0");
+    const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    expect(captured[0].headers["user-agent"]).toBe(`torrix-sdk/${version}`);
     expect(captured[0].body.records[0].id).toBe("run-1");
     expect(client.stats()).toMatchObject({ accepted: 1, dropped: 0, queued: 0, lastError: null });
   });

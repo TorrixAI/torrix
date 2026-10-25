@@ -1,5 +1,5 @@
 import type { PiiFinding } from "../core/domain";
-import { parsePiiTypes, scanAndMask } from "./pii";
+import { PII_TYPES, parsePiiTypes, scanAndMask } from "./pii";
 
 export interface MaskingSettings {
   pii_enabled: number;
@@ -13,6 +13,7 @@ export interface MaskingInput {
   request?: string | null;
   response?: string | null;
   prompt?: string | null;
+  name?: string | null;
   thinking?: string | null;
   toolCalls?: string | null;
 }
@@ -21,6 +22,7 @@ export interface MaskingResult {
   request: string | null;
   response: string | null;
   prompt: string | null;
+  name: string | null;
   thinking: string | null;
   toolCalls: string | null;
   findings: PiiFinding[];
@@ -30,13 +32,15 @@ export interface MaskingResult {
 /**
  * Redacts PII from every text field that is about to be persisted, so the
  * stored trace and the events derived from it agree on what was masked. Input
- * fields are gated by `pii_mask_input`, output fields by `pii_mask_output`.
+ * fields (request, prompt and the run name, which is derived from the prompt)
+ * are gated by `pii_mask_input`, output fields by `pii_mask_output`.
  */
 export function applyMasking(settings: MaskingSettings, input: MaskingInput): MaskingResult {
   const unchanged: MaskingResult = {
     request: input.request ?? null,
     response: input.response ?? null,
     prompt: input.prompt ?? null,
+    name: input.name ?? null,
     thinking: input.thinking ?? null,
     toolCalls: input.toolCalls ?? null,
     findings: [],
@@ -45,10 +49,11 @@ export function applyMasking(settings: MaskingSettings, input: MaskingInput): Ma
   if (!settings.pii_enabled) {
     return unchanged;
   }
-  const types = parsePiiTypes(settings.pii_types);
-  if (!types.length) {
-    return unchanged;
-  }
+  // Fail closed: masking is on, so an empty list (a settings row saved before
+  // types were chosen, or the database default) means every known type rather
+  // than storing the personal data the operator asked to hide.
+  const configured = parsePiiTypes(settings.pii_types);
+  const types = configured.length ? configured : PII_TYPES;
   const placeholder = settings.pii_placeholder || "[redacted]";
   const merged = new Map<string, PiiFinding>();
 
@@ -73,6 +78,7 @@ export function applyMasking(settings: MaskingSettings, input: MaskingInput): Ma
   return {
     request: pass(input.request, maskInput),
     prompt: pass(input.prompt, maskInput),
+    name: pass(input.name, maskInput),
     response: pass(input.response, maskOutput),
     thinking: pass(input.thinking, maskOutput),
     toolCalls: pass(input.toolCalls, maskOutput),

@@ -128,7 +128,10 @@ export function createProxyHandler(deps: ProxyDeps, forcedSource: RunSource | nu
       const parentRunId = h("x-torrix-parent-run-id") ?? null;
       const runName = h("x-torrix-name") ?? h("helicone-property-name") ?? (bodyText ? extractAutoName(parseJson(bodyText) ?? {}) : "untitled");
       const tagsHeader = h("x-torrix-tags");
-      const tags = parseTags(tagsHeader);
+      const tags = {
+        ...heliconePropertyTags(request.headers as Record<string, string | string[] | undefined>),
+        ...parseTags(tagsHeader),
+      };
       const heliconeSessionPath = h("helicone-session-path");
       if (heliconeSessionPath) {
         tags.session_path = heliconeSessionPath.slice(0, 200);
@@ -252,6 +255,7 @@ export function createProxyHandler(deps: ProxyDeps, forcedSource: RunSource | nu
         const blockReason = requestInspection.block.reason;
         const blockedBody = applyMasking(govSettings, {
           request: bodyText ? truncateChars(bodyText, 4000) : null,
+          name: grouping.name ?? null,
         });
         await persistRefusedRun(deps, {
           runId,
@@ -261,7 +265,7 @@ export function createProxyHandler(deps: ProxyDeps, forcedSource: RunSource | nu
           model: requestedModel,
           targetUrl: resolvedTarget,
           source,
-          grouping,
+          grouping: { ...grouping, name: blockedBody.name ?? grouping.name },
           startedAt,
           status: 451,
           error: `blocked_by_policy: ${blockReason}`,
@@ -665,6 +669,7 @@ export function createProxyHandler(deps: ProxyDeps, forcedSource: RunSource | nu
         request: runData.request_body ?? null,
         response: extracted.responseText ?? null,
         prompt: extracted.prompt ?? null,
+        name: runData.name ?? null,
         thinking: extracted.thinkingText ?? null,
         toolCalls: tools.length ? JSON.stringify(tools) : null,
       });
@@ -673,6 +678,9 @@ export function createProxyHandler(deps: ProxyDeps, forcedSource: RunSource | nu
         finalRun.request_body = masked.request ?? undefined;
         finalRun.pii_masked = true;
         finalRun.pii_findings = JSON.stringify(masked.findings);
+      }
+      if (masked.name) {
+        finalRun.name = masked.name;
       }
       if (responseFlags.length || requestFlags.length) {
         finalRun.policy_flags = JSON.stringify([...requestFlags, ...responseFlags]);
@@ -750,6 +758,26 @@ function parseTags(header: string | null): Record<string, string> {
       if (k) {
         out[k] = v;
       }
+    }
+  }
+  return out;
+}
+
+/** Helicone property headers become tags; `Helicone-Property-Name` is the run name instead. */
+function heliconePropertyTags(headers: Record<string, string | string[] | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (!name.startsWith("helicone-property-")) {
+      continue;
+    }
+    const key = name.slice("helicone-property-".length).trim();
+    const text = Array.isArray(value) ? value[0] : value;
+    if (!key || key === "name" || !text) {
+      continue;
+    }
+    out[key.slice(0, 64)] = text.slice(0, 200);
+    if (Object.keys(out).length >= 50) {
+      break;
     }
   }
   return out;
@@ -1002,8 +1030,14 @@ async function saveErrorRun(
     mediaAssets?: string | null;
   },
 ): Promise<void> {
+  const govSettings = await deps.repos.governance.getSettings(o.user);
+  const masked = applyMasking(govSettings, {
+    request: o.requestBodyForLog ?? null,
+    name: o.grouping.name ?? null,
+  });
   const runData: RunData = {
     ...o.grouping,
+    name: masked.name ?? o.grouping.name,
     id: o.runId,
     user_id: o.user,
     project_id: o.projectId,
@@ -1011,9 +1045,11 @@ async function saveErrorRun(
     model: o.model,
     status: 502,
     source: o.source ?? "proxy",
-    request_body: o.requestBodyForLog ?? undefined,
+    request_body: masked.request ?? undefined,
     target_url: o.targetUrl,
     error: o.error,
+    pii_masked: masked.masked || undefined,
+    pii_findings: masked.findings.length ? JSON.stringify(masked.findings) : undefined,
     media_count: o.mediaCount || undefined,
     media_assets: o.mediaAssets ?? undefined,
     latency_ms: Date.now() - o.start,
@@ -1179,6 +1215,7 @@ async function finalizeStreaming(
       request: ctx.requestBodyForLog,
       response: responseText || null,
       prompt: extracted.prompt ?? null,
+      name: ctx.runName ?? null,
       thinking: extracted.thinkingText ?? null,
       toolCalls: extracted.toolCalls?.length ? JSON.stringify(extracted.toolCalls) : null,
     });
@@ -1206,6 +1243,7 @@ async function finalizeStreaming(
       is_anomaly: costEval.isAnomaly ? 1 : 0,
       routed_from: ctx.routedFrom,
       fallback_used: ctx.fallbackUsed ? 1 : 0,
+      name: masked.name ?? ctx.runName,
       request_body: masked.request ?? undefined,
       pii_masked: masked.masked ? 1 : 0,
       pii_findings: masked.findings.length ? JSON.stringify(masked.findings) : undefined,

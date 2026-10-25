@@ -3138,14 +3138,16 @@ function insightsBody(report: InsightsReport, savings: SavingsReport, projectNam
   })();</script>`;
 }
 
-export function lockedPanel(featureId: string): string {
+export function lockedPanel(featureId: string, held?: Edition): string {
   const feature = lockedFeature(featureId);
   if (!feature) {
     return "";
   }
   const edition = editionName(feature.edition);
-  return `<div class="panel"><div class="panel-head"><span class="panel-title">${escapeHtml(feature.label)}</span><span class="badge neutral">${escapeHtml(edition)}</span></div>
-    <div class="locked-card" style="max-width:none"><p>${escapeHtml(feature.pitch)}</p><div class="locked-actions"><a class="btn btn-ghost" href="/ui/locked/${escapeHtml(feature.id)}">See what ${escapeHtml(edition)} adds</a></div></div></div>`;
+  const badge = held ? `Included in your ${editionName(held)} license` : edition;
+  const action = held ? "How to switch" : `See what ${edition} adds`;
+  return `<div class="panel"><div class="panel-head"><span class="panel-title">${escapeHtml(feature.label)}</span><span class="badge neutral">${escapeHtml(badge)}</span></div>
+    <div class="locked-card" style="max-width:none"><p>${escapeHtml(feature.pitch)}</p><div class="locked-actions"><a class="btn btn-ghost" href="/ui/locked/${escapeHtml(feature.id)}">${escapeHtml(action)}</a></div></div></div>`;
 }
 
 function governanceBody(settings: GovernanceSettings, config: ServerConfig, paidPanels: string): string {
@@ -3165,6 +3167,7 @@ function governanceBody(settings: GovernanceSettings, config: ServerConfig, paid
         <label><input type="checkbox" id="gv-audit"${settings.audit_enabled ? " checked" : ""}>Record audit log</label>
       </div>
       <div class="gv-wide gv-checks" id="gv-pii-types">${typeChecks}</div>
+      <div class="gv-wide" style="opacity:.65;font-size:12px">If masking is on and no type is selected, every type is masked.</div>
       <div><label for="gv-placeholder">Placeholder</label><input id="gv-placeholder" type="text" value="${escapeHtml(settings.pii_placeholder)}"></div>
       <div class="gv-actions"><button class="btn btn-primary" id="gv-save">Save settings</button><span class="gv-status" id="gv-status"></span></div>
     </div>
@@ -3193,7 +3196,12 @@ function governanceBody(settings: GovernanceSettings, config: ServerConfig, paid
 
   const panels =
     paidPanels ||
-    ["policies", "routing", "slm", "external-exports"].map((feature) => lockedPanel(feature)).join("\n");
+    ["policies", "routing", "slm", "external-exports"]
+      .map((feature) => {
+        const required = lockedFeature(feature)?.edition;
+        return lockedPanel(feature, required && editionAtLeast(config.edition, required) ? config.edition : undefined);
+      })
+      .join("\n");
   return `<style>${GOVERNANCE_STYLE}</style>
   <div class="page-head"><div><h1>Governance</h1><p class="page-sub">Policy, privacy and routing controls for this instance · ${escapeHtml(config.edition)} edition</p></div></div>
   ${settingsPanel}
@@ -4693,7 +4701,7 @@ function settingsBody(config: ServerConfig, ssoAllowed = false): string {
     border-radius:var(--r);padding:10px 12px;font-size:13.5px;font-family:inherit;outline:none}
   .set-fields select:focus,.set-fields input:focus{border-color:var(--accent)}
   .set-msg{min-height:20px;font-size:13px;margin-top:14px}
-  .set-msg.ok{color:var(--good)} .set-msg.err{color:var(--bad)}
+  .set-msg.ok{color:var(--good)} .set-msg.err{color:var(--bad)} .set-msg.warn{color:var(--warn)}
   .set-fields input[type="text"]{font-family:var(--mono);font-size:12.5px}
   .set-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:18px}
   .set-tabs a{font-family:var(--display);font-size:12.5px;font-weight:600;color:var(--text-3);border:1px solid var(--line);
@@ -4767,7 +4775,7 @@ function settingsBody(config: ServerConfig, ssoAllowed = false): string {
 </div>
 <div class="set-card">
   <div class="panel-title">License</div>
-  <p class="set-hint" style="margin-left:0">Paste a signed license key to move this instance to pro or enterprise. Keys are verified offline (RSA-SHA256) against the Torrix signing key built into this release; the instance returns to community when the license is removed or expires.</p>
+  <p class="set-hint" style="margin-left:0">Paste a signed license key to move this instance to pro or enterprise. Keys are verified offline (RSA-SHA256) against the Torrix signing key built into this release; the instance returns to community when the license is removed or expires. A license unlocks paid features only on the Pro or Enterprise image; the Community image accepts the key but does not contain them.</p>
   <div class="set-fields">
     <div>
       <label for="license-key">License key</label>
@@ -4898,7 +4906,7 @@ ${ssoAllowed ? `<div class="set-card">
   loadUsers();
   var licenseMsg=document.getElementById("license-msg");
   (async function loadLicense(){
-    try{var r=await api("/api/license");var j=await r.json();if(r.ok&&j.source==="license")licenseMsg.textContent="Active: "+j.edition+(j.licensee?" · "+j.licensee:"");}catch(e){}
+    try{var r=await api("/api/license");var j=await r.json();if(r.ok&&j.source==="license"){licenseMsg.className=j.notice?"set-msg warn":"set-msg";licenseMsg.textContent="Active: "+j.edition+(j.licensee?" · "+j.licensee:"")+(j.notice?". "+j.notice:"");}}catch(e){}
   })();
   document.getElementById("license-save").onclick=async function(){
     licenseMsg.className="set-msg";licenseMsg.textContent="Verifying…";
@@ -4906,8 +4914,8 @@ ${ssoAllowed ? `<div class="set-card">
       var r=await api("/api/license",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({key:document.getElementById("license-key").value.trim()})});
       var j=await r.json();
       if(!r.ok){licenseMsg.className="set-msg err";licenseMsg.textContent=String(j.error||"failed")+(j.reason?": "+j.reason:"");return}
-      licenseMsg.className="set-msg ok";licenseMsg.textContent="Activated "+j.edition+" edition.";
-      setTimeout(function(){location.reload()},800);
+      licenseMsg.className=j.notice?"set-msg warn":"set-msg ok";licenseMsg.textContent="Activated "+j.edition+" edition."+(j.notice?" "+j.notice:"");
+      setTimeout(function(){location.reload()},j.notice?2500:800);
     }catch(e){licenseMsg.className="set-msg err";licenseMsg.textContent=e.message;}
   };
   document.getElementById("license-clear").onclick=async function(){

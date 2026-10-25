@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { ServerConfig } from "../core/config";
+import { editionAtLeast, type Edition, type ServerConfig } from "../core/config";
 import type { ExtensionHost } from "../core/extensionHost";
 import type { AuthResult } from "../core/domain";
 import type { ObservedAgent } from "../core/ports";
@@ -25,8 +25,17 @@ export function agentTabs(active: "registry" | "observed", registryAllowed = tru
   </div>`;
 }
 
-function governUpsell(observedCount: number): string {
+function governUpsell(observedCount: number, licensedEdition: Edition | null): string {
   const feature = lockedFeature("agent-control");
+  if (licensedEdition) {
+    const held = editionName(licensedEdition);
+    return `<section class="panel" style="margin-bottom:14px"><div class="locked-card" style="max-width:none">
+    <span class="badge neutral" style="justify-self:start">Included in your ${escapeHtml(held)} license</span>
+    <p><b>Your ${escapeHtml(held)} license is active, but this server runs the Community build.</b></p>
+    <p>${escapeHtml(feature?.pitch ?? "")} These features are not in the Community build. Switch to the Torrix ${escapeHtml(held)} image and keep your data volume and license key. Your runs, settings and users carry over.</p>
+    <div class="locked-actions"><a class="btn btn-primary" href="/ui/locked/agent-control">How to switch</a></div>
+  </div></section>`;
+  }
   const edition = editionName(feature?.edition ?? "pro");
   const lead = observedCount
     ? `Torrix sees ${observedCount === 1 ? "this agent" : `these ${observedCount} agents`}. ${edition} lets you control what ${observedCount === 1 ? "it is" : "they are"} allowed to do.`
@@ -39,7 +48,7 @@ function governUpsell(observedCount: number): string {
   </div></section>`;
 }
 
-function observedAgentsBody(observed: ObservedAgent[], registryAllowed: boolean): string {
+function observedAgentsBody(observed: ObservedAgent[], registryAllowed: boolean, licensedEdition: Edition | null): string {
   const totalRuns = observed.reduce((sum, a) => sum + a.runs, 0);
   const totalCost = observed.reduce((sum, a) => sum + a.cost, 0);
   const rows = observed
@@ -68,7 +77,7 @@ function observedAgentsBody(observed: ObservedAgent[], registryAllowed: boolean)
     <div><h1>Agents</h1><p class="page-sub">${observed.length} observed agent${observed.length === 1 ? "" : "s"} · ${totalRuns.toLocaleString()} runs · ${fmtUsd(totalCost)} · read-only attribution from captured runs</p></div>
   </div>
   ${agentTabs("observed", registryAllowed)}
-  ${registryAllowed ? "" : governUpsell(observed.length)}
+  ${registryAllowed ? "" : governUpsell(observed.length, licensedEdition)}
   <div class="panel"><div class="panel-head"><span class="panel-title"><span class="sig"></span>Observed agents</span><span class="panel-note">from runs.agent_name · not managed agents</span></div>${table}</div>`;
 }
 
@@ -100,10 +109,17 @@ export async function agentsRoute(app: FastifyInstance, deps: AgentsDeps): Promi
     const scope = await resolveProjectScope(request, repos, auth.user.id);
     applyProjectScope(reply, scope);
     const observed = await repos.runs.listObservedAgents(auth.user.id, 100, scope.projectId);
+    const feature = lockedFeature("agent-control");
+    const licensedMissing = Boolean(feature) && editionAtLeast(deps.config.edition, feature!.edition) && !deps.host?.installed("agent-control");
     reply
       .type("text/html")
       .send(
-        pages.page("Observed agents", observedAgentsBody(observed, deps.host?.featureAllowed("agent-control") ?? false), "agents", auth.user),
+        pages.page(
+          "Observed agents",
+          observedAgentsBody(observed, deps.host?.featureAllowed("agent-control") ?? false, licensedMissing ? deps.config.edition : null),
+          "agents",
+          auth.user,
+        ),
       );
   });
 }

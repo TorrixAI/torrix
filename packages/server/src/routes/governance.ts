@@ -51,6 +51,7 @@ export async function governanceRoute(app: FastifyInstance, deps: GovernanceRout
   app.put("/api/governance/settings", { preHandler: requireUser }, async (request, reply) => {
     const auth = (request as unknown as { auth: AuthResult }).auth;
     const body = (request.body ?? {}) as Record<string, unknown>;
+    const current = await repos.governance.getSettings(auth.user.id);
     const fields: Partial<GovernanceSettings> = {};
 
     if ("pii_enabled" in body) fields.pii_enabled = activeFlag(body.pii_enabled);
@@ -69,6 +70,18 @@ export async function governanceRoute(app: FastifyInstance, deps: GovernanceRout
     }
     if (fields.pii_mask_output && fields.pii_enabled === 0) {
       fields.pii_enabled = 1;
+    }
+    // The stored row keeps the effective selection; carrying it over stops a
+    // fresh row from falling back to the empty database default.
+    if (fields.pii_enabled === 1 && !("pii_types" in fields)) {
+      fields.pii_types = current.pii_types;
+    }
+    // Fail closed: switching masking on without a type selection would store
+    // everything while looking protected, so persist every known type.
+    const enabledNow = fields.pii_enabled ?? current.pii_enabled;
+    const typesNow = "pii_types" in fields ? parsePiiTypes(fields.pii_types ?? "[]") : parsePiiTypes(current.pii_types);
+    if (enabledNow && !typesNow.length) {
+      fields.pii_types = JSON.stringify(PII_TYPES);
     }
     fields.updated_at = new Date().toISOString();
     await repos.governance.updateSettings(auth.user.id, fields);

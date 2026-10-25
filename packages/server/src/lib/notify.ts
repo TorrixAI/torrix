@@ -1,4 +1,5 @@
 import type { AlertSettings } from "../core/domain";
+import { guardedFetch } from "./outbound";
 
 const NOTIFY_TIMEOUT_MS = 8000;
 const DEFAULT_PAGERDUTY_BASE_URL = "https://events.pagerduty.com";
@@ -91,7 +92,7 @@ export async function dispatchPagerDuty(
     dedup_key: pagerDutyDedupKey(event, payload),
   });
   try {
-    await fetch(`${pagerDutyBaseUrl(deps)}/v2/enqueue`, {
+    await guardedFetch(`${pagerDutyBaseUrl(deps)}/v2/enqueue`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,
@@ -122,7 +123,7 @@ export async function dispatchEmailGateway(
     text: formatPayloadText(payload),
   });
   try {
-    await fetch(url, {
+    await guardedFetch(url, {
       method: "POST",
       headers,
       body,
@@ -141,7 +142,7 @@ export async function dispatchWebhook(webhookUrl: string, payload: Record<string
     headers["x-torrix-signature"] = `sha256=${await signPayload(body, secret)}`;
   }
   try {
-    await fetch(webhookUrl, {
+    await guardedFetch(webhookUrl, {
       method: "POST",
       headers,
       body,

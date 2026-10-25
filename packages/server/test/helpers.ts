@@ -13,6 +13,9 @@ import type { TorrixExtension } from "../src/core/extensions";
 import { generateApiKey, hashKey, keyPrefix } from "../src/lib/auth";
 import { createRepositories, type Repositories } from "../src/repos";
 
+// Tests drive loopback mock servers through guardedFetch paths; opt in once here.
+process.env.TORRIX_ALLOW_PRIVATE_HOSTS ??= "true";
+
 export interface TestDb {
   db: DbClient;
   repos: Repositories;

@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import bcrypt from "bcryptjs";
 import type { ServerConfig } from "../core/config";
-import { grantFromLicense, verifyLicense } from "../lib/license";
+import { grantFromLicense, refreshLicenseRevocations, verifyLicense } from "../lib/license";
 import type { Repositories } from "../repos";
 import { extractBearer, authenticateKey, generateApiKey, hashKey, keyPrefix, readAuthCookie } from "../lib/auth";
 import { runEmitter, evalEmitter, emitRun, serializeSse, acquireSseSlot, releaseSseSlot } from "../lib/events";
@@ -32,6 +32,7 @@ export interface ApiDeps {
   repos: Repositories;
   config: ServerConfig;
   host: ExtensionHost;
+  env?: NodeJS.ProcessEnv;
 }
 
 export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<void> {
@@ -633,13 +634,30 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     };
   });
 
+  const licenseNotice = (): string | null => {
+    const revocation = config.license.revocation();
+    if (revocation) {
+      return `License serial ${revocation.serial} is on the signed revocation list${revocation.reason ? ` (${revocation.reason})` : ""}. The instance runs on the Community edition. Contact whoever issued the key.`;
+    }
+    if (config.edition === "community" || deps.host.hasPaidFeatures()) {
+      return null;
+    }
+    const name = config.edition === "enterprise" ? "Enterprise" : "Pro";
+    return `Your ${name} license is active, but this server runs the Community build, which does not include ${name} features. Switch to the Torrix ${name} image and keep your data volume and license key. Your runs, settings and users carry over.`;
+  };
+
   app.get("/api/license", { preHandler: requireAdmin }, async () => {
     const grant = config.license.activeGrant();
     return {
       edition: config.edition,
       source: grant?.source === "license" ? "license" : "env",
       licensee: grant?.licensee ?? null,
+      customer: grant?.customer ?? null,
+      serial: grant?.serial ?? null,
       expires_at: grant?.expiresAt ?? null,
+      revoked: config.license.revocation(),
+      paid_build: deps.host.hasPaidFeatures(),
+      notice: licenseNotice(),
     };
   });
 
@@ -656,20 +674,26 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     }
     await repos.instance.set("license_key", key);
     grantFromLicense(config.license, result.payload);
+    await refreshLicenseRevocations(repos, config.license, deps.env ?? {});
     recordAudit(repos, {
       userId: authUser.user.id,
       actor: "session",
       action: "license.activate",
       targetType: "instance",
       targetId: "license",
-      detail: { edition: result.payload.edition, licensee: result.payload.licensee ?? null },
+      detail: { edition: result.payload.edition, licensee: result.payload.licensee ?? null, serial: result.payload.serial ?? null },
       ip: clientIp(request),
     });
     return reply.send({
       ok: true,
       edition: config.edition,
       licensee: result.payload.licensee ?? null,
+      customer: result.payload.customer ?? null,
+      serial: result.payload.serial ?? null,
       expires_at: result.payload.expires_at ?? null,
+      revoked: config.license.revocation(),
+      paid_build: deps.host.hasPaidFeatures(),
+      notice: licenseNotice(),
     });
   });
 

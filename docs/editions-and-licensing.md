@@ -17,12 +17,16 @@ runs, settings, users and API keys.
 | LLM judge, online evaluations, eval guardrails | | ✓ | ✓ |
 | Model routing and fallback, small-model savings analysis | | ✓ | ✓ |
 | Policy engine and human review queue | | ✓ | ✓ |
-| Agent control plane: agent identities and credentials, signed grants, delegated authority, authorization policies, risk scoring, single-use approvals | | ✓ (10 agents) | ✓ (unlimited) |
+| Agent control plane: agent identities and credentials, enterprise agent tokens (Entra Agent ID, Okta, AgentCore), signed grants with per-grant revocation, delegated authority, authorization policies and policy packs, risk scoring, single-use approvals | | ✓ (10 agents) | ✓ (unlimited) |
+| MCP tool-definition pinning with drift alerts and held calls | | | ✓ |
+| Tamper-evident action ledger with signed evidence bundles | | ✓ | ✓ |
+| ID-JAG / Enterprise-Managed Authorization token exchange | | ✓ | ✓ |
 | Governed MCP gateway | | ✓ | ✓ |
 | Agent-to-agent delegation | | | ✓ |
 | Signed calls to downstream servers and the agent permission graph | | | ✓ |
 | Single sign-on (OIDC), directory sync (Entra ID, Okta, any SCIM 2.0 directory) and business record connectors | | | ✓ |
 | EU AI Act compliance reports, audit log export, S3 and GCS exports | | | ✓ |
+| SIEM export to Splunk and Microsoft Sentinel (OCSF-shaped) | | | ✓ |
 
 ## Limits
 
@@ -57,14 +61,18 @@ The Community image does not contain the paid features, so an upgrade has two pa
 2. **Add the license key.** Paste it under **Settings > License**, or start Torrix with
    `TORRIX_LICENSE_KEY=<your key>`. The features of your edition turn on right away.
 
-If you add a license to the Community image, the higher user limit applies,
-and the paid features show a note that they need the paid image.
+If you add a license to the Community image, the higher user limit applies. The license is
+accepted, and Settings, License and the paid pages (such as Agents and Governance) say that the
+features need the paid image and that your data volume and key carry over.
 
 When a license expires, Torrix returns to the Community edition and your data stays where it is.
 Going back to the Community image works the same way: start it on the same volume.
 
 License keys are checked on your own server against a public key built into Torrix. Nothing is sent
-to us to validate them.
+to us to validate them. Each key carries a serial. If someone has published a signed revocation
+list for keys that were lost or leaked, point `TORRIX_LICENSE_REVOCATIONS` at it (a URL or a local
+file) and Torrix checks it daily and on activation, returning listed keys to Community. This is
+opt-in: without the setting, Torrix never checks and never calls out.
 
 To buy a license or start a trial, open a discussion on GitHub or contact the Torrix team.
 

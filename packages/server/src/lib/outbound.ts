@@ -73,6 +73,21 @@ async function resolveHost(host: string, policy: OutboundPolicy): Promise<string
 
 /** Throws OutboundBlockedError unless the URL may be fetched under the policy. */
 export async function assertOutboundAllowed(rawUrl: string, policy: OutboundPolicy = outboundPolicy()): Promise<URL> {
+  return (await resolveOutboundTarget(rawUrl, policy)).url;
+}
+
+export interface OutboundTarget {
+  url: URL;
+  /** A validated address to connect to, so DNS cannot rebind between the check and the request. */
+  address: string | null;
+}
+
+/**
+ * Validates a user-supplied address and resolves it once. The returned address is
+ * what guardedFetch connects to, which closes the DNS-rebinding window between
+ * the check and the request.
+ */
+export async function resolveOutboundTarget(rawUrl: string, policy: OutboundPolicy = outboundPolicy()): Promise<OutboundTarget> {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -85,12 +100,27 @@ export async function assertOutboundAllowed(rawUrl: string, policy: OutboundPoli
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   const allowedPrivate = policy.allowPrivate || hostAllowed(url, policy);
 
-  const addresses = isIP(host) ? [host] : [host, ...(await resolveHost(host, policy).catch(() => null) ?? [])];
-  if (!isIP(host) && addresses.length === 1 && !blockedReason(host)) {
-    // The name did not resolve: let the real request fail with its own error.
-    return url;
+  // The host itself: an IP literal, a loopback name, or a known metadata hostname.
+  const hostKind = classifyAddress(host);
+  if (hostKind === "metadata") {
+    throw new OutboundBlockedError("metadata_blocked", "cloud metadata and link-local addresses are never allowed");
   }
-  for (const address of addresses) {
+  if (hostKind === "private" && !allowedPrivate) {
+    throw new OutboundBlockedError(
+      "private_blocked",
+      "private and loopback addresses are blocked; set TORRIX_ALLOW_PRIVATE_HOSTS=true or list the host in TORRIX_LOCAL_HOST to reach internal systems",
+    );
+  }
+  if (isIP(host)) {
+    return { url, address: null };
+  }
+
+  const resolved = await resolveHost(host, policy).catch(() => null);
+  if (!resolved || !resolved.length) {
+    // The name did not resolve: let the real request fail with its own error.
+    return { url, address: null };
+  }
+  for (const address of resolved) {
     const kind = classifyAddress(address);
     if (kind === "metadata") {
       throw new OutboundBlockedError("metadata_blocked", "cloud metadata and link-local addresses are never allowed");
@@ -102,11 +132,12 @@ export async function assertOutboundAllowed(rawUrl: string, policy: OutboundPoli
       );
     }
   }
-  return url;
+  return { url, address: resolved[0] };
 }
 
 /**
- * fetch for user-supplied addresses: validates the target, never follows
+ * fetch for user-supplied addresses: validates the target, connects to the
+ * address it resolved (so DNS rebinding cannot swap it), never follows
  * redirects (a safe host could otherwise bounce the request to an internal one),
  * and surfaces a redirect as a blocked request.
  */
@@ -115,8 +146,23 @@ export async function guardedFetch(
   init: RequestInit = {},
   policy: OutboundPolicy = outboundPolicy(),
 ): Promise<Response> {
-  const url = await assertOutboundAllowed(rawUrl, policy);
-  const res = await fetch(url, { ...init, redirect: "manual" });
+  const { url, address } = await resolveOutboundTarget(rawUrl, policy);
+  let requestInit: RequestInit = { ...init, redirect: "manual" };
+  let target: URL = url;
+  if (address) {
+    const headers = new Headers(init.headers);
+    if (!headers.has("host")) {
+      headers.set("host", url.host);
+    }
+    target = new URL(url.toString());
+    target.hostname = address.includes(":") ? `[${address}]` : address;
+    requestInit = {
+      ...requestInit,
+      headers,
+      ...(url.protocol === "https:" ? { tls: { serverName: url.hostname } } : {}),
+    };
+  }
+  const res = await fetch(target, requestInit);
   if (res.status >= 300 && res.status < 400) {
     throw new OutboundBlockedError("redirect_blocked", `the server answered HTTP ${res.status}; redirects are not followed, use the final address`);
   }

@@ -119,9 +119,85 @@ test("proxy masks PII on the stored run", async () => {
     const stored = runs.runs[0];
     expect(stored.pii_masked).toBe(1);
     expect(stored.request_body ?? "").not.toContain("jane@corp.example");
+    expect(stored.name ?? "").not.toContain("jane@corp.example");
     expect(JSON.parse(stored.pii_findings ?? "[]")[0].type).toBe("email");
   } finally {
     upstream.stop(true);
+    await ctx.cleanup();
+  }
+});
+
+test("ingest masks PII in the auto-derived run name", async () => {
+  const ctx = await createTestApp();
+  try {
+    const session = await seedSession(ctx);
+    await seedProject(ctx, session.user.id);
+    await ctx.repos.governance.updateSettings(session.user.id, {
+      pii_enabled: 1,
+      pii_mask_input: 1,
+      pii_types: JSON.stringify(["email"]),
+    });
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/ingest",
+      headers: bearer(session.key),
+      payload: {
+        records: [
+          {
+            id: "pii-name-1",
+            model: "gpt-4o-mini",
+            request: { body: { messages: [{ role: "user", content: "contact jane@corp.example for details" }] } },
+          },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const stored = await ctx.repos.runs.getById("pii-name-1", session.user.id);
+    expect(stored?.name ?? "").not.toContain("jane@corp.example");
+    expect(stored?.name ?? "").toContain("[redacted]");
+    expect(stored?.pii_masked).toBe(1);
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test("masking enabled with no selected types masks every type", async () => {
+  const ctx = await createTestApp();
+  try {
+    const session = await seedSession(ctx);
+    await seedProject(ctx, session.user.id);
+    const put = await ctx.app.inject({
+      method: "PUT",
+      url: "/api/governance/settings",
+      headers: bearer(session.key),
+      payload: { pii_enabled: 1, pii_mask_input: 1, pii_mask_output: 1 },
+    });
+    expect(put.statusCode).toBe(200);
+    const settings = (JSON.parse(put.body) as { settings: { pii_types: string } }).settings;
+    expect(settings.pii_types).toContain("email");
+    expect(settings.pii_types).toContain("card");
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/ingest",
+      headers: bearer(session.key),
+      payload: {
+        records: [
+          {
+            id: "pii-default-1",
+            model: "gpt-4o-mini",
+            request: { body: { messages: [{ role: "user", content: "mail jane@corp.example today" }] } },
+            response: { body: { choices: [{ message: { role: "assistant", content: "sent to jane@corp.example" } }] } },
+          },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const stored = await ctx.repos.runs.getById("pii-default-1", session.user.id);
+    expect(stored?.request_body ?? "").not.toContain("jane@corp.example");
+    expect(stored?.name ?? "").not.toContain("jane@corp.example");
+    expect(stored?.pii_masked).toBe(1);
+  } finally {
     await ctx.cleanup();
   }
 });

@@ -36,8 +36,9 @@ numbers, IP addresses, postal codes and API-key-like strings. You choose:
 - whether to mask inputs, outputs, or both
 - the placeholder text
 
-Masking applies to stored prompts, responses, reasoning and tool calls on every ingestion path.
-The request your app sends to the provider is not changed.
+If masking is on and no type is selected, every type is masked. Masking applies to stored prompts,
+responses, reasoning, tool calls and the run name (when it is derived from the prompt) on every
+ingestion path. The request your app sends to the provider is not changed.
 
 ## Access
 
@@ -52,7 +53,9 @@ The request your app sends to the provider is not changed.
   `TORRIX_ALLOW_SIGNUP=true` only if you want open sign-up.
 - Credentials you save in settings are encrypted at rest. With SQLite, Torrix creates the key for
   you in a file next to the database (`torrix.secret.key`, readable only by its owner). With
-  Postgres, set `TORRIX_SECRET_KEY`.
+  Postgres, set `TORRIX_SECRET_KEY`. To rotate the key, set `TORRIX_SECRET_KEY_PREVIOUS` to the old
+  value while you switch: stored credentials are re-encrypted with the new key automatically, and
+  values saved before a key existed are encrypted too.
 
 ## Network
 

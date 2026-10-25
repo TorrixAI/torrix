@@ -2,8 +2,8 @@ apiVersion: v2
 name: torrix
 description: Self-hosted LLM observability (proxy, traces, evals, cost)
 type: application
-version: 1.2.1
-appVersion: "1.2.1"
+version: 1.3.0
+appVersion: "1.3.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/TorrixAI/torrix
 sources:

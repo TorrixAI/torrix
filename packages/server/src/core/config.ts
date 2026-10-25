@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { LicenseState, parseEdition, type Edition, type EditionConfig, type TrustedKey } from "./editions";
@@ -30,8 +31,20 @@ export interface ConfigOptions {
   trustedKeys?: readonly TrustedKey[];
 }
 
+// In a source checkout the default database sits in packages/server whichever entry point or folder
+// starts the process, so the community and paid entries open the same file. Compiled binaries and
+// images set DB_PATH or use their working folder.
+export function defaultDbPath(moduleDir: string = import.meta.dir): string {
+  const embedded = moduleDir.includes("$bunfs") || moduleDir.includes("~BUN");
+  const serverDir = path.resolve(moduleDir, "..", "..");
+  if (embedded || !fs.existsSync(path.join(serverDir, "package.json"))) {
+    return "torrix.sqlite";
+  }
+  return path.join(serverDir, "torrix.sqlite");
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv, options: ConfigOptions = {}): ServerConfig {
-  const dbPath = env.DB_PATH ?? "torrix.sqlite";
+  const dbPath = env.DB_PATH ?? defaultDbPath();
   const userLimitOverride = Number(env.TORRIX_USER_LIMIT);
   const retentionDays = Number(env.TORRIX_RETENTION_DAYS);
   const license = new LicenseState({
@@ -60,7 +73,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, options: ConfigOptions = {}):
     mediaDir: env.TORRIX_MEDIA_DIR ?? path.join(path.dirname(path.resolve(dbPath)), "torrix-media"),
     updateRepo: env.TORRIX_UPDATE_REPO ?? null,
     attestationIssuer: env.TORRIX_ATTESTATION_ISSUER?.trim() || "torrix",
-    version: "1.2.1",
+    version: "1.3.0",
   };
 }
 

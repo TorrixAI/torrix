@@ -67,6 +67,10 @@ renaming headers later:
 | `Helicone-Request-Id` | run id |
 | `Helicone-User-Id` | end user |
 | `Helicone-Property-Name` | run name |
+| `Helicone-Property-*` | tags, for example `Helicone-Property-Team: billing` becomes the `team` tag |
+
+Torrix headers win when both are present. The full migration steps, including Langfuse and
+OpenTelemetry, are in [Moving from Helicone or Langfuse](../migrating-from-helicone-langfuse.md).
 
 ## Things to know
 

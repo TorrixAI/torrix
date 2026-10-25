@@ -84,6 +84,23 @@ function jsonRpcHandler(
     if (sessionHeader) {
       forwardHeaders["mcp-session-id"] = sessionHeader;
     }
+    // The 2026-07-28 stateless transport routes on these request headers; they
+    // must reach the downstream server unchanged.
+    for (const name of ["mcp-protocol-version", "mcp-method", "mcp-name"]) {
+      const value = firstString(headers[name]);
+      if (value) {
+        forwardHeaders[name] = value;
+      }
+    }
+    for (const [name, value] of Object.entries(headers)) {
+      if (!name.startsWith("mcp-param-")) {
+        continue;
+      }
+      const text = firstString(value);
+      if (text) {
+        forwardHeaders[name] = text;
+      }
+    }
     const upstreamAuthorization = firstString(headers["x-upstream-authorization"]);
     if (upstreamAuthorization) {
       forwardHeaders.authorization = upstreamAuthorization;

@@ -9,7 +9,7 @@ import type { TorrixExtension } from "./core/extensions";
 import type { DbClient } from "./db/client";
 import { loadPricingOverrides } from "./lib/pricing";
 import { loadStoredPricing, syncLivePricing } from "./lib/pricingSync";
-import { loadStoredLicense } from "./lib/license";
+import { loadStoredLicense, refreshLicenseRevocations } from "./lib/license";
 import { generateApiKey, hashKey, keyPrefix } from "./lib/auth";
 import { buildRunRow, makeEvent } from "./lib/runMapper";
 import { runWeeklyDigest } from "./lib/costGate";
@@ -48,6 +48,11 @@ export async function startServer(options: StartOptions = {}): Promise<FastifyIn
     await loadStoredLicense(repos, config.license, env);
   } catch (err) {
     console.error("failed to load pricing overrides", err);
+  }
+  try {
+    await refreshLicenseRevocations(repos, config.license, env);
+  } catch (err) {
+    console.error("license revocation check failed", err);
   }
   if (config.isDemo) {
     try {
@@ -135,6 +140,11 @@ function startPeriodicTasks(config: ServerConfig, client: DbClient, repos: Repos
     const updateRepo = config.updateRepo;
     setTimeout(() => void checkForUpdate(repos, updateRepo), 5_000);
     setInterval(() => void checkForUpdate(repos, updateRepo), 24 * 60 * 60 * 1000);
+  }
+
+  // Opt-in: only talks to the network when TORRIX_LICENSE_REVOCATIONS is set.
+  if (env.TORRIX_LICENSE_REVOCATIONS?.trim()) {
+    setInterval(() => void refreshLicenseRevocations(repos, config.license, env), 24 * 60 * 60 * 1000);
   }
 
   if (config.telemetry) {

@@ -5,6 +5,7 @@ import { extractOpenAI } from "./extract";
 import { calculateCost } from "./pricing";
 import { makeEvent, buildRunRow } from "./runMapper";
 import { emitRun, emitEval } from "./events";
+import { guardedFetch } from "./outbound";
 import { NO_ASSIST, type Assist } from "../core/extensions";
 
 const evalKeys = new Map<string, string>();
@@ -247,7 +248,7 @@ async function runOnline(deps: EvalDeps, evalRecord: Eval, rows: DatasetRow[]): 
         temperature: evalRecord.temperature ?? undefined,
         max_tokens: evalRecord.max_tokens ?? undefined,
       });
-      const res = await fetch(evalRecord.target_url ?? "", {
+      const res = await guardedFetch(evalRecord.target_url ?? "", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
         body,

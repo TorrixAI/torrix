@@ -100,6 +100,10 @@ export class ExtensionHost {
     return this.featureIndex.has(featureId);
   }
 
+  hasPaidFeatures(): boolean {
+    return this.featureIndex.size > 0;
+  }
+
   featureAllowed(featureId: string): boolean {
     const feature = this.featureIndex.get(featureId);
     return feature !== undefined && this.license.allows(feature.minEdition);
