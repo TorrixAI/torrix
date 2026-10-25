@@ -53,6 +53,7 @@ volumes:
 | `TORRIX_EMBEDDINGS_URL` | none | Pro and Enterprise: an OpenAI compatible embeddings endpoint for grouping similar prompts. Optional: `TORRIX_EMBEDDINGS_KEY`, `TORRIX_EMBEDDINGS_MODEL` |
 | `TORRIX_ATTESTATION_ISSUER` | `torrix` | Enterprise: the `iss` of the signed token added to calls Torrix forwards to your own MCP servers |
 | `TORRIX_RETENTION_DAYS` | keep everything | deletes runs older than this many days, once a day. Golden runs are kept |
+
 Telemetry is off in this image. Data lives in `/data`, so keep that volume when you upgrade.
 
 ## Tags
