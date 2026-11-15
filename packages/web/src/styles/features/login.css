@@ -64,6 +64,7 @@
 .lg-card .lg-field input{font:inherit}
 .lg-card .lg-field ::placeholder{font:inherit}
 .lg-hint{font-size:12.5px;color:var(--text-3);margin:var(--sp-3) 0 0;line-height:1.6}
+.lg-signup-closed{margin:10px 0 20px}
 .lg-btn{width:100%;height:36px;margin-top:22px;border-radius:var(--r);padding:0 12px;font-family:var(--display);font-size:13.5px;font-weight:600;border:1px solid transparent;
   color:var(--on-brand);background:var(--brand-fill);transition:filter .12s;cursor:pointer}
 .lg-btn:hover{filter:brightness(1.06);color:var(--on-brand)}
