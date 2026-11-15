@@ -33,7 +33,7 @@ function CoveragePanel() {
   // decimal only when the window actually produces one.
   const percentLabel = formatPercent(percent, Number.isInteger(percent) ? 0 : 1);
 
-  return <section className="panel mb-4">
+  return <section className="panel mb-4 coverage-panel">
     <div className="panel-head">
       <div className="panel-title"><span className="sig" />Governed coverage</div>
       <span className="panel-note">{control.allowed ? "registered agents over observed agents" : <><span className="chip">Pro</span> registry</>}</span>

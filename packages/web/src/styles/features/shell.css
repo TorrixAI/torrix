@@ -4,6 +4,11 @@
 .up-banner-close{position:absolute;top:50%;right:8px;transform:translateY(-50%);display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--text-3);font:400 17px/1 var(--sans);cursor:pointer}
 .up-banner-close:hover{background:var(--surface-3);color:var(--text)}
 .up-banner-close:focus-visible{outline:2px solid var(--focus-outline);outline-offset:1px}
+/* The shared body rule drops all padding when a panel holds a table, so the
+   coverage number lost the inset the title and the table cells keep. Keep the
+   padding and let the table run edge to edge instead. */
+.panel.coverage-panel .panel-body{padding:var(--sp-4)}
+.panel.coverage-panel .panel-body>.table-wrap{margin:0 calc(-1 * var(--sp-4))}
 .coverage-summary{display:flex;align-items:baseline;gap:var(--sp-3);flex-wrap:wrap}
 .coverage-num{font:600 28px/1 var(--sans);letter-spacing:-.03em;color:var(--heading);font-variant-numeric:tabular-nums}
 .coverage-track{height:8px;margin:10px 0 16px;border-radius:999px;background:var(--surface-2);overflow:hidden}
