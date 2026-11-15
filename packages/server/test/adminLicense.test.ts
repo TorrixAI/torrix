@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { bearer, createTestApp, licenseSigner, seedSession } from "./helpers";
+import { bearer, createTestApp, expectSpaShell, licenseSigner, seedSession } from "./helpers";
 
 async function adminKey(ctx: Awaited<ReturnType<typeof createTestApp>>, email: string): Promise<string> {
   const signup = await ctx.app.inject({
@@ -209,23 +209,29 @@ test("pages that upsell stop asking a licensed Community build to activate a lic
   const ctx = await createTestApp();
   try {
     const session = await seedSession(ctx);
-    const agents = await ctx.app.inject({ method: "GET", url: "/ui/agents/observed", headers: bearer(session.key) });
-    expect(agents.body).toContain("Activate a license");
-    expect(agents.body).not.toContain("Your Pro license is active");
-    const governance = await ctx.app.inject({ method: "GET", url: "/ui/governance", headers: bearer(session.key) });
-    expect(governance.body).toContain("See what Pro adds");
-    expect(governance.body).not.toContain("How to switch");
+    // The SPA's upgrade card picks one of two states from /api/config (edition +
+    // licensed feature ids) and /api/locked/:feature (the paid edition).
+    const unlicensed = (await ctx.app.inject({ method: "GET", url: "/api/config", headers: bearer(session.key) })).json() as { edition: string; features: string[] };
+    expect(unlicensed.edition).toBe("community");
+    expect(unlicensed.features).not.toContain("agent-control");
 
     ctx.config.license.override("pro");
-    const licensedAgents = await ctx.app.inject({ method: "GET", url: "/ui/agents/observed", headers: bearer(session.key) });
-    expect(licensedAgents.body).toContain("Your Pro license is active, but this server runs the Community build.");
-    expect(licensedAgents.body).toContain("keep your data volume and license key");
-    expect(licensedAgents.body).toContain("How to switch");
-    expect(licensedAgents.body).not.toContain("Activate a license");
-    expect(licensedAgents.body).not.toContain("—");
-    const licensedGovernance = await ctx.app.inject({ method: "GET", url: "/ui/governance", headers: bearer(session.key) });
-    expect(licensedGovernance.body).toContain("Included in your Pro license");
-    expect(licensedGovernance.body).toContain("How to switch");
+    const licensed = (await ctx.app.inject({ method: "GET", url: "/api/config", headers: bearer(session.key) })).json() as { edition: string; features: string[] };
+    expect(licensed.edition).toBe("pro");
+    // Licensed Pro, but this Community build has no agent-control extension.
+    expect(licensed.features).not.toContain("agent-control");
+
+    const info = (await ctx.app.inject({ method: "GET", url: "/api/locked/agent-control", headers: bearer(session.key) })).json() as {
+      feature: { edition: string; label: string; pitch: string };
+    };
+    expect(info.feature.edition).toBe("pro");
+    expect(info.feature.pitch).not.toContain("—");
+
+    for (const url of ["/ui/agents/observed", "/ui/governance"]) {
+      const page = await ctx.app.inject({ method: "GET", url, headers: bearer(session.key) });
+      expect(page.statusCode).toBe(200);
+      expectSpaShell(page.body);
+    }
   } finally {
     await ctx.cleanup();
   }

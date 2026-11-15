@@ -16,6 +16,11 @@ const EDGE_CANDIDATES = [
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 ];
 const browserPath = EDGE_CANDIDATES.find((candidate) => fs.existsSync(candidate));
+// The console is a React SPA (see AGENTS.md, Console). This suite drives the
+// server-rendered DOM the SPA replaced, so it only runs against a legacy build
+// when TORRIX_LEGACY_UI=1 is set. The SPA click-through lives in the enterprise
+// test suite.
+const legacyUi = process.env.TORRIX_LEGACY_UI === "1";
 
 interface CdpMessage {
   id?: number;
@@ -113,7 +118,7 @@ async function seedRun(ctx: TestApp, userId: string): Promise<Run> {
   return run;
 }
 
-test.skipIf(!browserPath)(
+test.skipIf(!browserPath || !legacyUi)(
   "browser click-through: sign in, dashboard, runs, score a run",
   async () => {
     const ctx = await createTestApp();

@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Run } from "../src/core/domain";
 import { extractMedia } from "../src/lib/extract";
-import { bearer, createTestApp, seedSession } from "./helpers";
+import { bearer, createTestApp, expectSpaShell, seedSession } from "./helpers";
 
 const PNG_1PX =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -124,9 +124,9 @@ test("proxy persists inline media to disk and records assets on the run", async 
 
     const detail = await ctx.app.inject({ method: "GET", url: `/ui/runs/${run.id}`, headers: bearer(key) });
     expect(detail.statusCode).toBe(200);
-    expect(detail.body).toContain("Media assets");
-    expect(detail.body).toContain("image/png");
-    expect(detail.body).toContain(`/ui/runs/${run.id}/media/0`);
+    expectSpaShell(detail.body);
+    const runApi = await ctx.app.inject({ method: "GET", url: `/api/runs/${run.id}`, headers: bearer(key) });
+    expect(runApi.body).toContain("image/png");
 
     const bytes = await ctx.app.inject({ method: "GET", url: `/ui/runs/${run.id}/media/0`, headers: bearer(key) });
     expect(bytes.statusCode).toBe(200);
@@ -136,7 +136,8 @@ test("proxy persists inline media to disk and records assets on the run", async 
     expect(missing.statusCode).toBe(404);
 
     const listed = await ctx.app.inject({ method: "GET", url: "/ui/runs", headers: bearer(key) });
-    expect(listed.body).toContain("2 media");
+    expect(listed.statusCode).toBe(200);
+    expectSpaShell(listed.body);
   } finally {
     upstream.stop(true);
     await ctx.cleanup();

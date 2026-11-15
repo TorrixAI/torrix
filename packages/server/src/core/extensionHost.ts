@@ -9,8 +9,6 @@ import { NO_ASSIST } from "./extensions";
 import type {
   Assist,
   ExtensionContext,
-  UiSlot,
-  UiSlotInput,
   FeatureDescriptor,
   LicenseGate,
   McpToolContribution,
@@ -37,12 +35,12 @@ function licenseRequired(feature: string | null, edition: Edition) {
   return { error: "license_required", feature, edition };
 }
 
-/** Composes the installed extensions; with none installed every call is a no-op. */
-export type LockedRenderer = (info: { feature: string | null; edition: Edition }) => string;
+/** Serves the React console for gated /ui pages; the SPA renders the upgrade card. */
+export type UiFallback = (info: { feature: string | null; edition: Edition }) => string | Promise<string>;
 
 export class ExtensionHost {
   private readonly featureIndex = new Map<string, FeatureDescriptor>();
-  private lockedRenderer: LockedRenderer | null = null;
+  private uiFallback: UiFallback | null = null;
   private attached: AppDeps | null = null;
 
   constructor(
@@ -79,15 +77,14 @@ export class ExtensionHost {
     return this.attached;
   }
 
-  /** Lets the console render an upgrade card instead of JSON for locked /ui pages. */
-  setLockedRenderer(renderer: LockedRenderer): void {
-    this.lockedRenderer = renderer;
+  /** Lets the console serve the SPA for gated /ui pages; the SPA renders the upgrade card. */
+  setUiFallback(fallback: UiFallback): void {
+    this.uiFallback = fallback;
   }
 
-  private sendLocked(request: FastifyRequest, reply: FastifyReply, feature: string | null, edition: Edition) {
-    const renderer = this.lockedRenderer;
-    if (renderer && request.method === "GET" && request.url.startsWith("/ui/")) {
-      return reply.code(402).type("text/html").send(renderer({ feature, edition }));
+  private async sendLocked(request: FastifyRequest, reply: FastifyReply, feature: string | null, edition: Edition) {
+    if (this.uiFallback && request.method === "GET" && request.url.startsWith("/ui/")) {
+      return reply.code(200).type("text/html").send(await this.uiFallback({ feature, edition }));
     }
     return reply.code(402).send(licenseRequired(feature, edition));
   }
@@ -312,18 +309,6 @@ export class ExtensionHost {
       Object.assign(merged, ext.assist?.(ctx) ?? {});
     }
     return merged;
-  }
-
-  /** Concatenated output of every licensed extension for a page slot; "" when none renders. */
-  async renderSlot(slot: UiSlot, input: UiSlotInput): Promise<string> {
-    const parts: string[] = [];
-    for (const ext of this.active()) {
-      const render = ext.ui?.[slot];
-      if (render) {
-        parts.push(await render(this.context(this.attachedDeps()), input));
-      }
-    }
-    return parts.join("");
   }
 
   async loginProviders(): Promise<Array<{ label: string; href: string }>> {

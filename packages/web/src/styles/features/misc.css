@@ -1,0 +1,5 @@
+/* Misc — post-utilities overrides. */
+.pager-links button{padding:5px 12px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--surface);color:var(--text-2);font:600  11px var(--sans);cursor:pointer}
+.pager-links button:hover{border-color:var(--line-2);color:var(--text);background:var(--surface-3)}
+.range button.active{background:var(--surface-2);color:var(--text);border:1px solid var(--line-2);border-radius:4px;font-weight:600}
+.range a.active{background:var(--surface-2);color:var(--text);border:1px solid var(--line-2);border-radius:4px;font-weight:600}

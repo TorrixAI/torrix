@@ -1,0 +1,19 @@
+/* Login page rules (pre-utilities). */
+.lg-shell{background:var(--bg)}
+.lg-hero{background:var(--surface);border-right:1px solid var(--line)}
+.lg-hero::after{display:none}
+.lg-hero-inner{padding:var(--sp-6) 48px}
+.lg-brand .word{font-size:18px}
+.lg-edition{display:block;margin-top:2px;font:500 11px/1.3 var(--sans);letter-spacing:0;color:var(--text-3)}
+.lg-hero-mid h1{font-size:40px;line-height:1.08;letter-spacing:-.045em}
+.lg-acc{color:var(--text-3);text-decoration:none}
+.lg-signal{opacity:.8}
+.lg-signal path{stroke:var(--line-2)!important}
+.lg-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:none;padding:var(--sp-5)}
+.lg-tabs{margin-bottom:20px}
+.lg-card label{font:500 11px/1.4 var(--sans);letter-spacing:0;text-transform:none;color:var(--text-3)}
+.lg-card .btn-primary{background:var(--brand-fill);color:var(--on-brand)}
+.lg-btn{height:36px!important;padding:0 12px!important}
+.lg-card input{height:36px!important}
+.lg-lead a{color:var(--brand-text)}
+.lg-points li svg{color:var(--text-2)!important}

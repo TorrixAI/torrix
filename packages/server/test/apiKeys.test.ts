@@ -66,8 +66,9 @@ test("API keys can be listed, created, used and revoked", async () => {
 
     const page = await ctx.app.inject({ method: "GET", url: "/ui/keys", headers: bearer(sessionKey) });
     expect(page.statusCode).toBe(200);
-    expect(page.body).toContain("API keys");
-    expect(page.body).toContain("Copy key");
+    // /ui/keys serves the React SPA when a web build is present, and the legacy
+    // server-rendered page otherwise.
+    expect(page.body.includes("API keys") || page.body.includes('id="root"')).toBe(true);
   } finally {
     await ctx.cleanup();
   }

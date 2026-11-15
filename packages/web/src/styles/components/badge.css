@@ -1,0 +1,51 @@
+/* Badge component rules. */
+.agent-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px 3px 8px;border-radius:var(--r-pill);font-family:var(--sans);font-size:11px;font-weight:600;color:var(--text-2);background:var(--surface-2);border:1px solid var(--line);white-space:nowrap}
+.agent-chip::before{content:"";width:6px;height:6px;border-radius:2px;background:var(--agent-tone,var(--brand-strong));flex:0 0 6px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:var(--r-pill);font-family:var(--sans);font-size:11px;font-weight:600;text-transform:none;letter-spacing:.05em;
+  background:var(--surface-2);border:1px solid var(--line);color:var(--text-2);white-space:nowrap}
+.badge .dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+.badge.neutral{color:var(--text-3)}
+.chip{display:inline-block;padding:3px 9px;border-radius:var(--r-pill);font-family:var(--sans);font-size:11px;font-weight:500;color:var(--text-2);
+  background:var(--surface-2);border:1px solid var(--line);white-space:nowrap}
+.score-badge{display:inline-flex;align-items:center;gap:5px;font-family:var(--sans);font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;
+  padding:3px 9px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--surface-2);color:var(--text-2)}
+.score-badge.good{color:var(--good);border-color:var(--good-line);background:var(--good-dim)}
+.score-badge.bad{color:var(--bad-strong);border-color:var(--bad-line);background:var(--bad-dim)}
+.score-badge.none{color:var(--text-mute)}
+.run-status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle;flex:0 0 8px}
+.run-status-dot.good{background:var(--good)}
+.run-status-dot.bad{background:var(--bad)}
+.chip-mono{font-family:var(--mono)}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--text-2);font:500 11px/1.4 var(--sans)}
+.chip-mono{font-family:var(--mono);font-size:11px}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--text-2);font:600 11px/1.4 var(--sans);text-transform:none;letter-spacing:0}
+.badge .dot{display:none}
+.badge.good::before{display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;font:700 11px/1 var(--sans)}
+.badge.warn::before{display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;font:700 11px/1 var(--sans)}
+.badge.bad::before{display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;font:700 11px/1 var(--sans)}
+.badge.neutral::before{display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;font:700 11px/1 var(--sans)}
+.badge.good{background:var(--good-dim);border-color:var(--good-line);color:var(--good)}
+.badge.good::before{content:"\2713"}
+.badge.warn{background:var(--warn-dim);border-color:var(--warn-line);color:var(--warn)}
+.badge.warn::before{content:"\25F7"}
+.badge.bad{background:var(--bad-dim);border-color:var(--bad-line);color:var(--bad-strong)}
+.badge.bad::before{content:"\2715"}
+.badge.neutral::before{content:"i"}
+.badge.accent{background:var(--surface-2);border-color:var(--line);color:var(--text-2)}
+.evidence-chip{display:inline-flex;align-items:center;gap:5px;padding:2px 6px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--text-3);text-decoration:none;font:500 11px/1.4 var(--sans);white-space:nowrap}
+.evidence-chip:hover{border-color:var(--brand-line);color:var(--text);text-decoration:none}
+.evidence-hash{font-family:var(--mono);font-size:11px;color:var(--text-2)}
+.evidence-tick{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:var(--brand-fill);color:var(--on-brand);font:700 11px/1 var(--sans)}
+.evidence-label{color:var(--text-3)}
+.decision-strip{display:inline-flex;align-items:center;gap:6px;max-width:100%;font:500 11px/1.4 var(--sans);color:var(--text-2);white-space:nowrap}
+.decision-strip .decision-icon{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;font:700 11px/1 var(--sans)}
+.decision-strip.allowed .decision-icon{color:var(--good);background:var(--good-dim)}
+.decision-strip.held .decision-icon{color:var(--warn);background:var(--warn-dim)}
+.decision-strip.denied .decision-icon{color:var(--bad);background:var(--bad-dim)}
+.decision-strip .policy{overflow:hidden;text-overflow:ellipsis;color:var(--text);font-weight:600}
+.decision-strip .approver{color:var(--text-3)}
+.decision-strip{white-space:normal!important;align-items:flex-start;flex-wrap:wrap;line-height:1.4}
+.decision-strip .policy{max-width:none!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
+.badge.accent{color:var(--text);border-color:var(--line-2);background:var(--surface-2)}
+.evidence-chip:hover{border-color:var(--line-2)}
+.badge.risk::before{content:"\26A0"!important}

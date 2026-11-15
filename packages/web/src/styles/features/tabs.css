@@ -1,0 +1,6 @@
+/* Tabs — post-utilities overrides. */
+.head-actions .range{display:inline-flex;gap:2px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px}
+.head-actions .range button{padding:var(--sp-1) 11px;border:0;border-radius:var(--r-pill);background:transparent;font:600  11px var(--sans);color:var(--text-3);cursor:pointer}
+.head-actions .range button:hover{color:var(--text);background:var(--surface-3)}
+.head-actions .range button.active{color:var(--on-brand);background:var(--brand-fill)}
+.head-actions .range button.active{background:var(--surface-2);color:var(--text);border-color:var(--line-2)}

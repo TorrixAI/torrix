@@ -23,14 +23,28 @@ You need [Bun](https://bun.sh) 1.2 or newer. Python 3.9+ is only needed for the 
 git clone https://github.com/TorrixAI/torrix.git
 cd torrix
 bun install
-bun run dev          # server on http://localhost:8088, restarts on changes
+bun run build        # build the console once: the server only serves packages/web/dist
+bun run dev          # API on http://localhost:8088 plus the Vite dev server for the console
 ```
+
+## Working on a change
+
+`main` is what ships, so changes reach it through a pull request rather than a direct commit.
+
+- branch from `main` with a name that says what it does (`feat/routing-rules`, `fix/proxy-timeout`,
+  `docs/self-hosting`)
+- keep the commits reviewable and run the checks below before you open the PR
+- open the PR against `main`; once CI is green it is squash-merged and the branch is deleted
+
+Direct commits to `main` are for release housekeeping only (version bumps and release notes).
 
 ## Checks to run before a pull request
 
 ```bash
-bun run typecheck    # server types
+bun run build        # console build; the server and its tests read packages/web/dist
+bun run typecheck    # server, console and SDK types
 bun run test         # server tests
+bun run test:web     # pure console helper tests
 bun run test:sdk     # TypeScript SDK
 bun run test:plugin  # Claude Code plugin
 bun run test:py      # Python SDK
@@ -40,8 +54,9 @@ bun run test:py      # Python SDK
 
 | Path | What it is |
 |---|---|
-| `packages/server` | the server and web console (Fastify, Bun, SQLite or Postgres) |
-| `packages/server/src/routes` | HTTP routes and the server-rendered console pages |
+| `packages/server` | the server (Fastify, Bun, SQLite or Postgres) and the `/ui` shell that serves the console |
+| `packages/server/src/routes` | HTTP routes, the proxy and the console shell |
+| `packages/web` | the React console, built with Vite into `packages/web/dist` (`bun run build`) |
 | `packages/server/src/lib` | shared logic: extraction, pricing, cost, masking, events |
 | `packages/server/src/repos` | data access, one SQL path for SQLite and Postgres |
 | `packages/server/drizzle`, `drizzle-pg` | database migrations for SQLite and Postgres |

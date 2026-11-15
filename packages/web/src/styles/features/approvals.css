@@ -1,0 +1,9 @@
+/* Approvals — post-utilities overrides. */
+.approval-decision{min-width:0}
+.approval-decision-head{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:nowrap}
+.approval-decision-head .badge{flex:0 0 auto}
+.approval-reason{margin:var(--sp-1) 0 0;color:var(--text-2);font:400 12px/1.45 var(--sans);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;white-space:normal;text-overflow:clip;word-break:normal}
+.approval-mobile-meta{display:none}
+@media(width <= 1100px){
+.approval-mobile-meta{display:block}
+}

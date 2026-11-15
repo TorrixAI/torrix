@@ -1,0 +1,11 @@
+/* Print-only evidence views. */
+@media print{
+  body{background:#fff;color:#000;font-size:11pt}
+  .sidebar,.topbar,.head-actions,.pager,.toast-wrap,.agent-tabs,.filter-tabs,.no-print{display:none!important}
+  .app{display:block;padding:0}
+  .content{max-width:none;padding:0}
+  .panel{break-inside:avoid;border-color:#bbb;box-shadow:none}
+  .panel-head{background:#fff}
+  a{color:#000;text-decoration:none}
+  .badge,.chip,.evidence-chip{border-color:#bbb}
+}

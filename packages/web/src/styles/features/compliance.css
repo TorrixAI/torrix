@@ -1,0 +1,8 @@
+/* Compliance — post-utilities overrides. */
+.compliance-cards{align-items:stretch}
+.compliance-cards>.panel{display:flex;flex-direction:column;height:100%;margin-bottom:0}
+.compliance-cards>.panel>.panel-body{flex:1;padding:var(--sp-4) 18px}
+.compliance-panel .db-hero-stats{gap:14px 12px}
+.pii-summary{display:flex;flex-direction:column;gap:var(--sp-2);margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.pii-summary-label{font:500 12px/1.4 var(--sans);color:var(--text-2)}
+.pii-chips{display:flex;flex-wrap:wrap;gap:6px}

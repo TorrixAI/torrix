@@ -1,6 +1,6 @@
 import type { DbClient } from "../db/client";
 import { sqlAll, sqlGet, sqlRun, type SqlValue } from "../db/sql";
-import type { AnalyticsFilter, AnalyticsRow, DashboardFilters, DashboardStats, DashboardWindow, GroupRoot, ListOptions, ObservedAgent, RunChildCount, RunGroupQuery, RunListFilters, RunListSummary, RunRepository, TraceGroup } from "../core/ports";
+import type { AnalyticsFilter, AnalyticsRow, DashboardFilters, DashboardStats, DashboardWindow, GroupRoot, ListOptions, ObservedAgent, RunChildCount, RunGovernanceSummary, RunGroupQuery, RunGroupTotals, RunListFilters, RunListSummary, RunRepository, RunTextMatch, TraceGroup } from "../core/ports";
 import type { Run } from "../core/domain";
 
 export function toRunRow(data: Record<string, unknown>): Run {
@@ -19,6 +19,42 @@ const RUN_COLUMNS = [
   "retrieval_docs", "intent_cluster", "created_at",
 ] as const;
 
+interface PerDayRow {
+  date: string;
+  cost: number;
+  runs: number;
+  tokens: number;
+  errors: number;
+  anomalies: number;
+  latencyMs: number | null;
+}
+
+/**
+ * The dashboard windows are calendar ranges, but the SQL only returns days
+ * with traffic. Fill the quiet days so a 14-day chart reads as 14 days and a
+ * sparkline starts and ends on the same dates as the label above it.
+ */
+function fillDailyGaps(rows: PerDayRow[], from?: string, to?: string): PerDayRow[] {
+  if (!from) return rows;
+  const startMs = Date.parse(from);
+  const endMs = to ? Date.parse(to) : Date.now();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return rows;
+  const start = new Date(startMs);
+  const end = new Date(endMs);
+  const firstDay = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+  const lastDay = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+  const span = Math.floor((lastDay - firstDay) / 86_400_000) + 1;
+  // A caller can pass an arbitrary range. Do not build an unbounded series.
+  if (span <= 0 || span > 366) return rows;
+  const byDate = new Map(rows.map((row) => [row.date, row]));
+  const filled: PerDayRow[] = [];
+  for (let index = 0; index < span; index += 1) {
+    const date = new Date(firstDay + index * 86_400_000).toISOString().slice(0, 10);
+    filled.push(byDate.get(date) ?? { date, cost: 0, runs: 0, tokens: 0, errors: 0, anomalies: 0, latencyMs: 0 });
+  }
+  return filled;
+}
+
 export function createRunRepository(db: DbClient): RunRepository {
   const queryGroups = async (
     userId: string,
@@ -32,8 +68,16 @@ export function createRunRepository(db: DbClient): RunRepository {
     const where = runListWhere(userId, filters);
     const keyExpr = includeEmpty ? `COALESCE(${column}, '')` : column;
     const emptyClause = includeEmpty ? "" : ` AND ${column} IS NOT NULL AND ${column} != ''`;
+    const minRuns = Number.isFinite(filters.minRuns) && (filters.minRuns ?? 0) > 1 ? Math.floor(filters.minRuns as number) : 0;
+    const having = minRuns ? ` HAVING COUNT(*) >= ${minRuns}` : "";
     const total = Number(
-      (await sqlGet<{ c: number }>(db.engine, `SELECT COUNT(DISTINCT ${keyExpr}) AS c FROM runs WHERE ${where.sql}${emptyClause}`, where.params))?.c ?? 0,
+      (await sqlGet<{ c: number }>(
+        db.engine,
+        minRuns
+          ? `SELECT COUNT(*) AS c FROM (SELECT ${keyExpr} AS k FROM runs WHERE ${where.sql}${emptyClause} GROUP BY ${keyExpr}${having})`
+          : `SELECT COUNT(DISTINCT ${keyExpr}) AS c FROM runs WHERE ${where.sql}${emptyClause}`,
+        where.params,
+      ))?.c ?? 0,
     );
     const rows = await sqlAll<{
       id: string;
@@ -56,7 +100,7 @@ export function createRunRepository(db: DbClient): RunRepository {
               MAX(created_at) AS "lastAt"
        FROM runs
        WHERE ${where.sql}${emptyClause}
-       GROUP BY ${keyExpr}
+       GROUP BY ${keyExpr}${having}
        ORDER BY "lastAt" DESC
        LIMIT ? OFFSET ?`,
       [...where.params, limit, offset],
@@ -269,18 +313,20 @@ export function createRunRepository(db: DbClient): RunRepository {
       );
       const totalRuns = Number(totals?.totalRuns ?? 0);
 
-      const perDay = await sqlAll<{ date: string; cost: number; runs: number; tokens: number; errors: number; latencyMs: number | null }>(
+      const perDayRows = await sqlAll<PerDayRow>(
         db.engine,
         `SELECT substr(created_at, 1, 10) AS date,
                 COALESCE(SUM(cost_usd), 0) AS cost,
                 COUNT(*) AS runs,
                 COALESCE(SUM(COALESCE(input_tokens,0) + COALESCE(output_tokens,0)), 0) AS tokens,
                 COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) AS errors,
+                COALESCE(SUM(CASE WHEN is_anomaly = 1 THEN 1 ELSE 0 END), 0) AS anomalies,
                 AVG(latency_ms) AS "latencyMs"
          FROM runs WHERE ${where.sql}
          GROUP BY substr(created_at, 1, 10) ORDER BY date ASC`,
         where.params,
       );
+      const perDay = fillDailyGaps(perDayRows, filters.from, filters.to);
 
       const byModel = await sqlAll<{ model: string; runs: number; cost: number }>(
         db.engine,
@@ -349,6 +395,7 @@ export function createRunRepository(db: DbClient): RunRepository {
       }));
 
       let previous: DashboardWindow | null = null;
+      let perDayPrevious: PerDayRow[] = [];
       if (filters.from) {
         const fromMs = Date.parse(filters.from);
         const toMs = filters.to ? Date.parse(filters.to) : Date.now();
@@ -357,6 +404,22 @@ export function createRunRepository(db: DbClient): RunRepository {
           const prevWhere = buildWhere(userId, { projectId: filters.projectId, from: prevFrom, to: filters.from });
           const prevTotals = await readTotals(prevWhere);
           previous = { ...prevTotals, p95LatencyMs: await percentile(0.95, prevWhere) };
+          const prevRows = await sqlAll<PerDayRow>(
+            db.engine,
+            `SELECT substr(created_at, 1, 10) AS date,
+                    COALESCE(SUM(cost_usd), 0) AS cost,
+                    COUNT(*) AS runs,
+                    COALESCE(SUM(COALESCE(input_tokens,0) + COALESCE(output_tokens,0)), 0) AS tokens,
+                    COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) AS errors,
+                    COALESCE(SUM(CASE WHEN is_anomaly = 1 THEN 1 ELSE 0 END), 0) AS anomalies,
+                    AVG(latency_ms) AS "latencyMs"
+             FROM runs WHERE ${prevWhere.sql}
+             GROUP BY substr(created_at, 1, 10) ORDER BY date ASC`,
+            prevWhere.params,
+          );
+          const prevFilled = fillDailyGaps(prevRows, prevFrom, filters.from);
+          // Align by index so the ghost series shares the current x-axis labels.
+          perDayPrevious = perDay.map((day, index) => ({ ...(prevFilled[index] ?? { cost: 0, runs: 0, tokens: 0, errors: 0, anomalies: 0, latencyMs: 0 }), date: day.date }));
         }
       }
 
@@ -379,6 +442,16 @@ export function createRunRepository(db: DbClient): RunRepository {
           runs: Number(d.runs),
           tokens: Number(d.tokens),
           errors: Number(d.errors),
+          anomalies: Number(d.anomalies),
+          latencyMs: Math.round(Number(d.latencyMs ?? 0)),
+        })),
+        perDayPrevious: perDayPrevious.map((d) => ({
+          date: String(d.date),
+          cost: Number(d.cost),
+          runs: Number(d.runs),
+          tokens: Number(d.tokens),
+          errors: Number(d.errors),
+          anomalies: Number(d.anomalies),
           latencyMs: Math.round(Number(d.latencyMs ?? 0)),
         })),
         byModel: byModel.map((m) => ({ model: String(m.model), runs: Number(m.runs), cost: Number(m.cost) })),
@@ -432,6 +505,55 @@ export function createRunRepository(db: DbClient): RunRepository {
         subagents: Number(row?.subagents ?? 0),
         sessions: Number(row?.sessions ?? 0),
         traces: Number(row?.traces ?? 0),
+      };
+    },
+
+    async traceTraffic(userId: string, opts: RunListFilters): Promise<{ total: number; multi: number }> {
+      const where = runListWhere(userId, opts);
+      const row = await sqlGet<{ total: number; multi: number }>(
+        db.engine,
+        `SELECT COUNT(*) AS total,
+                COALESCE(SUM(CASE WHEN trace_id IN (
+                  SELECT trace_id FROM runs WHERE ${where.sql} GROUP BY trace_id HAVING COUNT(*) > 1
+                ) THEN 1 ELSE 0 END), 0) AS multi
+         FROM runs WHERE ${where.sql}`,
+        [...where.params, ...where.params],
+      );
+      return { total: Number(row?.total ?? 0), multi: Number(row?.multi ?? 0) };
+    },
+
+    async findTextMatches(userId: string, since: string, needles: string[], limit: number): Promise<RunTextMatch[]> {
+      if (!needles.length || limit <= 0) {
+        return [];
+      }
+      const likes = needles.map(() => "(name LIKE ? OR request_body LIKE ? OR error LIKE ?)").join(" OR ");
+      const params: Array<string | number> = [userId, since];
+      for (const needle of needles) {
+        const like = `%${needle}%`;
+        params.push(like, like, like);
+      }
+      params.push(limit);
+      const rows = await sqlAll<{ runId: string; text: string }>(
+        db.engine,
+        `SELECT id AS "runId", COALESCE(name, '') || ' ' || COALESCE(request_body, '') || ' ' || COALESCE(error, '') AS text
+         FROM runs WHERE user_id = ? AND created_at >= ? AND (${likes})
+         ORDER BY created_at DESC LIMIT ?`,
+        params,
+      );
+      return rows.map((row) => ({ runId: String(row.runId), text: String(row.text ?? "") }));
+    },
+
+    async governanceSummary(userId: string, since: string): Promise<RunGovernanceSummary> {
+      const row = await sqlGet<{ piiMasked: number; policyFlagged: number }>(
+        db.engine,
+        `SELECT COALESCE(SUM(CASE WHEN pii_masked = 1 THEN 1 ELSE 0 END), 0) AS "piiMasked",
+                COALESCE(SUM(CASE WHEN policy_flags IS NOT NULL AND policy_flags != '' AND policy_flags != '[]' THEN 1 ELSE 0 END), 0) AS "policyFlagged"
+         FROM runs WHERE user_id = ? AND created_at >= ?`,
+        [userId, since],
+      );
+      return {
+        piiMasked: Number(row?.piiMasked ?? 0),
+        policyFlagged: Number(row?.policyFlagged ?? 0),
       };
     },
 
@@ -598,6 +720,45 @@ export function createRunRepository(db: DbClient): RunRepository {
         [userId, query.id, query.limit, query.offset],
       );
       return { runs: rows.map(toRunRow), total };
+    },
+
+    async groupTotals(userId: string, kind: "trace" | "session", id: string): Promise<RunGroupTotals> {
+      const column = kind === "trace" ? "trace_id" : "session_id";
+      const row = await sqlGet<{
+        runs: number;
+        agents: number;
+        subagents: number;
+        cost: number;
+        tokens: number;
+        errors: number;
+        firstAt: string | null;
+        lastAt: string | null;
+        maxLatencyMs: number;
+      }>(
+        db.engine,
+        `SELECT COUNT(*) AS runs,
+                COUNT(DISTINCT COALESCE(agent_name, agent_id)) AS agents,
+                COALESCE(SUM(CASE WHEN parent_run_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS subagents,
+                COALESCE(SUM(cost_usd), 0) AS cost,
+                COALESCE(SUM(COALESCE(input_tokens,0) + COALESCE(output_tokens,0) + COALESCE(thinking_tokens,0)), 0) AS tokens,
+                COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) AS errors,
+                MIN(created_at) AS "firstAt",
+                MAX(created_at) AS "lastAt",
+                COALESCE(MAX(latency_ms), 0) AS "maxLatencyMs"
+         FROM runs WHERE user_id = ? AND ${column} = ?`,
+        [userId, id],
+      );
+      return {
+        runs: Number(row?.runs ?? 0),
+        agents: Number(row?.agents ?? 0),
+        subagents: Number(row?.subagents ?? 0),
+        cost: Number(row?.cost ?? 0),
+        tokens: Number(row?.tokens ?? 0),
+        errors: Number(row?.errors ?? 0),
+        firstAt: row?.firstAt ?? null,
+        lastAt: row?.lastAt ?? null,
+        maxLatencyMs: Number(row?.maxLatencyMs ?? 0),
+      };
     },
 
     async listByParents(userId: string, parentIds: string[], limit: number): Promise<Run[]> {
@@ -808,12 +969,16 @@ function runListWhere(userId: string, opts: RunListFilters): { sql: string; para
   }
   if (opts.search) {
     const like = `%${opts.search}%`;
+    // The equality branch lets an exact run id use the primary-key index; the
+    // LIKE branches keep partial ids and every other field searchable.
+    const columns =
+      "id = ? OR id LIKE ? OR name LIKE ? OR model LIKE ? OR provider LIKE ? OR run_note LIKE ? OR score_note LIKE ? OR tags LIKE ? OR agent_name LIKE ? OR end_user_id LIKE ? OR session_id LIKE ? OR trace_id LIKE ?";
     if (opts.deepSearch) {
-      where.push("(name LIKE ? OR model LIKE ? OR run_note LIKE ? OR score_note LIKE ? OR request_body LIKE ?)");
-      params.push(like, like, like, like, like);
+      where.push(`(${columns} OR request_body LIKE ?)`);
+      params.push(opts.search, like, like, like, like, like, like, like, like, like, like, like, like);
     } else {
-      where.push("(name LIKE ? OR model LIKE ? OR run_note LIKE ? OR score_note LIKE ?)");
-      params.push(like, like, like, like);
+      where.push(`(${columns})`);
+      params.push(opts.search, like, like, like, like, like, like, like, like, like, like, like);
     }
   }
   return { sql: where.join(" AND "), params };

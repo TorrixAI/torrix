@@ -15,6 +15,7 @@ import { Database } from "bun:sqlite";
 const PKG_DIR = path.resolve(import.meta.dir, "..", "packages", "server");
 const ROOT = path.resolve(PKG_DIR, "..", "..");
 const DRIZZLE_DIR = path.join(ROOT, "packages", "server", "drizzle");
+const WEB_DIR = path.join(ROOT, "packages", "web");
 
 const TARGETS: Record<string, { os: string; arch: string }> = {
   "bun-linux-x64": { os: "linux", arch: "x64" },
@@ -35,6 +36,22 @@ function outputFile(outDir: string, target: string): string {
   return path.join(outDir, `torrix-${spec.os}-${spec.arch}${spec.os === "windows" ? ".exe" : ""}`);
 }
 
+function buildConsole(outDir: string): void {
+  // The console is a static build the server reads from `web/` beside the
+  // binary, so it is built first and copied next to every output.
+  console.log("building the web console");
+  const build = Bun.spawnSync([process.execPath, "run", "build"], { cwd: WEB_DIR, stdout: "inherit", stderr: "inherit" });
+  if (build.exitCode !== 0) {
+    console.error("the web console build failed");
+    process.exit(1);
+  }
+  const dist = path.join(WEB_DIR, "dist");
+  const target = path.join(outDir, "web");
+  fs.rmSync(target, { recursive: true, force: true });
+  fs.cpSync(dist, target, { recursive: true });
+  console.log(`console -> ${path.relative(ROOT, target)}`);
+}
+
 const verify = process.argv.includes("--verify");
 const all = process.argv.includes("--all");
 const outDir = path.resolve(ROOT, "dist");
@@ -43,6 +60,8 @@ const requested = process.argv
   .filter((arg) => arg.startsWith("--target="))
   .map((arg) => arg.slice("--target=".length));
 const targets = all ? Object.keys(TARGETS) : requested.length > 0 ? requested : [hostTarget()];
+
+buildConsole(outDir);
 
 for (const target of targets) {
   if (!TARGETS[target]) {
@@ -97,14 +116,27 @@ async function verifyBinary(file: string): Promise<void> {
     if (!(await pollHealth(base, proc, 30_000))) {
       error = "the binary did not answer /health within 30s";
     } else {
-      const logo = await fetch(`${base}/ui/assets/torrix-logo.png`);
-      if (!logo.ok || (await logo.arrayBuffer()).byteLength === 0) {
-        error = "the embedded logo asset is missing from the binary";
+      const mark = await fetch(`${base}/ui/assets/mark-ink.svg`);
+      if (!mark.ok || !(mark.headers.get("content-type") ?? "").startsWith("image/svg+xml")) {
+        error = "the embedded brand mark is missing from the binary";
+      }
+      if (!error) {
+        const favicon = await fetch(`${base}/ui/assets/favicon-32.png`);
+        if (!favicon.ok || !(favicon.headers.get("content-type") ?? "").startsWith("image/png")) {
+          error = "the embedded favicon is missing from the binary";
+        }
       }
       if (!error) {
         const font = await fetch(`${base}/ui/fonts/geist-latin.woff2`);
         if (!font.ok || (await font.arrayBuffer()).byteLength === 0) {
           error = "the embedded font asset is missing from the binary";
+        }
+      }
+      if (!error) {
+        const login = await fetch(`${base}/ui/login`);
+        const html = await login.text();
+        if (!login.ok || !html.includes('id="root"') || !/src="\/assets\/[^"]+\.js"/.test(html)) {
+          error = "the web console build is missing beside the binary (rebuild with bun run compile)";
         }
       }
       if (!error) {

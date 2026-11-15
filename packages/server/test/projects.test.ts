@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { bearer, createTestApp } from "./helpers";
+import { bearer, createTestApp, expectSpaShell } from "./helpers";
 
 async function createUser(ctx: Awaited<ReturnType<typeof createTestApp>>, adminKey: string, email: string): Promise<string> {
   const res = await ctx.app.inject({
@@ -104,7 +104,7 @@ test("projects support CRUD, membership roles and access control", async () => {
 
     const runsView = await ctx.app.inject({ method: "GET", url: `/ui/runs?project=${prodId}`, headers: bearer(ownerKey) });
     expect(runsView.statusCode).toBe(200);
-    expect(runsView.body).toContain("All projects");
+    expectSpaShell(runsView.body);
 
     const removed = await ctx.app.inject({
       method: "DELETE",

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { bearer, createTestApp, seedSession, type TestApp } from "./helpers";
+import { bearer, createTestApp, expectSpaShell, seedSession, type TestApp } from "./helpers";
 
 async function save(ctx: TestApp, userId: string, projectId: string, fields: Record<string, unknown>): Promise<void> {
   await ctx.repos.runs.save({ user_id: userId, project_id: projectId, status: 200, source: "sdk", ...fields } as never);
@@ -22,15 +22,19 @@ test("a trace opens with a turn summary, branch totals and the error text of fai
       id: "refund", name: "issue refund", trace_id: "turn-a", parent_run_id: "search", agent_name: "search", status: 502, error: "upstream_error: payments API timed out", latency_ms: 5000, created_at: at(5),
     });
 
-    const res = await ctx.app.inject({ method: "GET", url: "/ui/traces/turn-a", headers: bearer(session.key) });
+    const page = await ctx.app.inject({ method: "GET", url: "/ui/traces/turn-a", headers: bearer(session.key) });
+    expect(page.statusCode).toBe(200);
+    expectSpaShell(page.body);
+
+    const res = await ctx.app.inject({ method: "GET", url: "/api/runs/group/trace/turn-a", headers: bearer(session.key) });
     expect(res.statusCode).toBe(200);
-    expect(res.body).toContain("Refund order 42 and email the customer");
-    expect(res.body).toContain("10.00s wall clock");
-    expect(res.body).toContain("First failure:");
-    expect(res.body).toContain("payments API timed out");
-    expect(res.body).toContain("branch · 3 calls · $0.012 · 1 error");
-    expect(res.body).toContain("<th class=\"num\">Duration</th>");
-    expect(res.body).not.toContain("subagent · <a");
+    const group = res.json() as { runs: Array<{ id: string; parent_run_id: string | null; error: string | null; request_body: string | null }>; eventCounts: Record<string, number> };
+    const ids = group.runs.map((run) => run.id);
+    expect(ids).toEqual(expect.arrayContaining(["root", "search", "refund"]));
+    expect(group.runs.find((run) => run.id === "root")?.request_body).toContain("Refund order 42 and email the customer");
+    expect(group.runs.find((run) => run.id === "refund")?.error).toContain("payments API timed out");
+    expect(group.runs.find((run) => run.id === "search")?.parent_run_id).toBe("root");
+    expect(group.eventCounts).toBeDefined();
   } finally {
     await ctx.cleanup();
   }
@@ -58,18 +62,19 @@ test("tree rows expand into tool calls, reasoning and policy flags", async () =>
       { id: crypto.randomUUID(), run_id: "agent-run", type: "thinking", message: "The customer wants a refund; check the order first.", created_at: new Date(t0 + 2000).toISOString() },
     ]);
 
-    const res = await ctx.app.inject({ method: "GET", url: "/ui/traces/events-a", headers: bearer(session.key) });
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toContain('data-events="agent-run"');
-    expect(res.body).not.toContain('data-events="plain-run"');
-    expect(res.body).toContain('class="ev-row policy-row"');
-    expect(res.body).toContain("no-secrets");
-    expect(res.body).toContain("API key shape found");
-    expect(res.body).toContain("data-event-row");
-    expect(res.body).toContain('"tools":[{');
-    expect(res.body).toContain("search_orders");
-    expect(res.body).toContain("data-flow-zoom");
-    expect(res.body).toContain('id="flow-compress"');
+    const page = await ctx.app.inject({ method: "GET", url: "/ui/traces/events-a", headers: bearer(session.key) });
+    expect(page.statusCode).toBe(200);
+    expectSpaShell(page.body);
+
+    // The tree expands rows lazily, so the payloads are the run row (policy flags)
+    // plus the events endpoint rather than pre-rendered markup.
+    const group = (await ctx.app.inject({ method: "GET", url: "/api/runs/group/trace/events-a", headers: bearer(session.key) })).json() as {
+      runs: Array<{ id: string; policy_flags: string | null }>;
+    };
+    const flagged = group.runs.find((run) => run.id === "agent-run")?.policy_flags ?? "";
+    expect(flagged).toContain("no-secrets");
+    expect(flagged).toContain("API key shape found");
+    expect(group.runs.find((run) => run.id === "plain-run")?.policy_flags ?? "").toBe("");
 
     const events = await ctx.app.inject({ method: "GET", url: "/api/runs/agent-run/events", headers: bearer(session.key) });
     expect(events.statusCode).toBe(200);
@@ -107,19 +112,28 @@ test("the turn summary shows the last answer and the traces index carries roots,
 
     const trace = await ctx.app.inject({ method: "GET", url: "/ui/traces/turn-b", headers: bearer(session.key) });
     expect(trace.statusCode).toBe(200);
-    expect(trace.body).toContain("The incident started at 09:00");
-    expect(trace.body).toContain("Answer");
+    expectSpaShell(trace.body);
+    const answer = await ctx.app.inject({ method: "GET", url: "/api/runs/reply/events", headers: bearer(session.key) });
+    const answerEvents = (answer.json() as { events: Array<{ type: string; message: string }> }).events;
+    expect(answerEvents.find((event) => event.type === "response")?.message).toContain("The incident started at 09:00");
 
-    const index = await ctx.app.inject({ method: "GET", url: "/ui/traces", headers: bearer(session.key) });
+    const index = await ctx.app.inject({ method: "GET", url: "/api/traces", headers: bearer(session.key) });
     expect(index.statusCode).toBe(200);
-    expect(index.body).toContain("Summarise the incident");
-    expect(index.body).toContain("planner");
-    expect(index.body).toContain('data-runs="2"');
-    expect(index.body).toContain('data-runs="1"');
-    expect(index.body).toContain("2.00s");
-    expect(index.body).toContain('id="trace-hide-single"');
-    expect(index.body).toContain('id="trace-search"');
-    expect(index.body).toContain('id="trace-errors"');
+    const indexBody = index.json() as {
+      traces: Array<{ id: string; runs: number; firstAt: string; lastAt: string }>;
+      roots: Record<string, { agentName: string | null; requestBody: string | null }>;
+    };
+    const turnB = indexBody.traces.find((group) => group.id === "turn-b");
+    expect(turnB?.runs).toBe(2);
+    expect(indexBody.roots["turn-b"].agentName).toBe("planner");
+    expect(indexBody.roots["turn-b"].requestBody).toContain("Summarise the incident");
+    expect(Date.parse(turnB!.lastAt) - Date.parse(turnB!.firstAt)).toBe(2000);
+    expect(indexBody.traces.find((group) => group.id === "turn-c")?.runs).toBe(1);
+
+    // The index filters: search matches agent and prompt, errors and single-run filters narrow the set.
+    const filtered = await ctx.app.inject({ method: "GET", url: "/api/traces?q=planner", headers: bearer(session.key) });
+    const filteredBody = filtered.json() as { traces: Array<{ id: string }> };
+    expect(filteredBody.traces.map((group) => group.id)).toEqual(["turn-b"]);
   } finally {
     await ctx.cleanup();
   }
@@ -137,15 +151,18 @@ test("a session lists one row per turn and opens on its latest page", async () =
         id: `run-${i}`, name: `step ${i}`, session_id: "long-chat", trace_id: `turn-${Math.floor(i / 100)}`, created_at: new Date(t0 + i * 1000).toISOString(),
       });
     }
-    const latest = await ctx.app.inject({ method: "GET", url: "/ui/sessions/long-chat", headers: bearer(session.key) });
-    expect(latest.body).toContain("Showing runs 201 to 205 of 205");
-    expect(latest.body).toContain("step 204");
-    expect(latest.body).not.toContain(">step 3<");
-    const first = await ctx.app.inject({ method: "GET", url: "/ui/sessions/long-chat?page=1", headers: bearer(session.key) });
-    expect(first.body).toContain("Showing runs 1 to 200 of 205");
-    expect(first.body).toContain("Turns");
-    expect(first.body).toContain('href="/ui/traces/turn-0"');
-    expect(first.body).toContain('href="/ui/traces/turn-1"');
+    const latest = await ctx.app.inject({ method: "GET", url: "/api/runs/group/session/long-chat?limit=200&offset=200", headers: bearer(session.key) });
+    expect(latest.statusCode).toBe(200);
+    const latestBody = latest.json() as { runs: Array<{ id: string }>; total: number };
+    expect(latestBody.total).toBe(205);
+    expect(latestBody.runs.map((run) => run.id)).toContain("run-204");
+    expect(latestBody.runs.map((run) => run.id)).not.toContain("run-3");
+
+    const first = await ctx.app.inject({ method: "GET", url: "/api/runs/group/session/long-chat?limit=200&offset=0", headers: bearer(session.key) });
+    const firstBody = first.json() as { runs: Array<{ id: string; trace_id: string | null }> };
+    expect(firstBody.runs.length).toBe(200);
+    expect(firstBody.runs.map((run) => run.trace_id)).toContain("turn-0");
+    expect(firstBody.runs.map((run) => run.trace_id)).toContain("turn-1");
   } finally {
     await ctx.cleanup();
   }

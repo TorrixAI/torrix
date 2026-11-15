@@ -1,0 +1,27 @@
+/* Agents page rules (pre-utilities). */
+@media(width <= 700px){
+.agents-table{table-layout:auto!important;min-width:820px}
+}
+.agents-table th{overflow:hidden!important;text-overflow:ellipsis!important;white-space:normal!important}
+.agents-table td{overflow:hidden!important;text-overflow:ellipsis!important;white-space:normal!important}
+.agents-table .chip{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.agents-table th{white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis}
+.agents-table td{white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis}
+.agents-table th{text-overflow:clip}
+@media(width <= 1400px){
+.agents-table th{padding-left:8px!important;padding-right:8px!important}
+.agents-table td{padding-left:8px!important;padding-right:8px!important}
+}
+@media(width <= 1100px){
+.agents-table{table-layout:auto!important}
+.agents-table colgroup{display:none}
+.agents-table th:nth-child(4){display:none}
+.agents-table td:nth-child(4){display:none}
+.agents-table th:nth-child(5){display:none}
+.agents-table td:nth-child(5){display:none}
+.agents-table th:nth-child(6){display:none}
+.agents-table td:nth-child(6){display:none}
+.agents-table th:nth-child(7){display:none}
+.agents-table td:nth-child(7){display:none}
+.agents-table td:nth-child(1){max-width:260px}
+}

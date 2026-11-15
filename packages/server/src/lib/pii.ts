@@ -50,14 +50,91 @@ const detectors: PiiDetector[] = [
   },
   {
     type: "api_key",
-    pattern: /\b(?:sk|pk|rk|key|ghp|xox[baprs])[-_][A-Za-z0-9_-]{16,}\b/g,
+    pattern: /\b(?:sk|pk|rk|key|ghp|gho|ghu|ghs|ghr|xox[baprs])[-_][A-Za-z0-9_-]{16,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
     render: (_m, p) => `${p}(key)`,
+  },
+  {
+    type: "aws_access_key",
+    pattern: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g,
+    render: (_m, p) => `${p}(aws_access_key)`,
+  },
+  {
+    type: "aws_secret",
+    pattern: /\baws[_-]?(?:secret|secret[_-]?access[_-]?key)\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}["']?/gi,
+    render: (_m, p) => `${p}(aws_secret)`,
+  },
+  {
+    type: "google_api_key",
+    pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g,
+    render: (_m, p) => `${p}(google_api_key)`,
+  },
+  {
+    type: "private_key",
+    pattern: /-----BEGIN [A-Z0-9 ]{0,30}PRIVATE KEY-----[\s\S]{0,8192}?-----END [A-Z0-9 ]{0,30}PRIVATE KEY-----/g,
+    render: (_m, p) => `${p}(private_key)`,
+  },
+  {
+    type: "jwt",
+    pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
+    render: (_m, p) => `${p}(jwt)`,
+  },
+  {
+    type: "bearer_token",
+    pattern: /\bAuthorization\s*:\s*Bearer\s+[A-Za-z0-9._~+/-]{12,}=*/gi,
+    render: (_m, p) => `${p}(bearer)`,
   },
 ];
 
 const byType = new Map(detectors.map((d) => [d.type, d]));
 
 export const PII_TYPES: PiiType[] = detectors.map((d) => d.type);
+
+/** High-confidence credential shapes used by the stored-secret warning. */
+export const SECRET_TYPES: PiiType[] = [
+  "api_key",
+  "aws_access_key",
+  "aws_secret",
+  "google_api_key",
+  "private_key",
+  "jwt",
+  "bearer_token",
+];
+
+/** SQL prefilter tokens; detectors still make the final decision. */
+export const SECRET_CANDIDATE_TOKENS = [
+  "github_pat_",
+  "ghp_",
+  "gho_",
+  "ghu_",
+  "ghs_",
+  "ghr_",
+  "AKIA",
+  "ASIA",
+  "aws_secret",
+  "aws-secret",
+  "AIza",
+  "-----BEGIN",
+  "eyJ",
+  "Authorization:",
+  "Bearer ",
+];
+
+export function containsSecret(text: string | null | undefined): boolean {
+  if (!text) {
+    return false;
+  }
+  for (const type of SECRET_TYPES) {
+    const detector = byType.get(type);
+    if (!detector) {
+      continue;
+    }
+    const pattern = new RegExp(detector.pattern.source, detector.pattern.flags);
+    if (pattern.test(text)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export function parsePiiTypes(raw: string): PiiType[] {
   try {

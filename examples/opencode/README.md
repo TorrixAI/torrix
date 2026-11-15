@@ -10,16 +10,24 @@ turn twice.
 
 ## Option A: plugin (no provider changes)
 
-The plugin lives at `../../.opencode/plugins/torrix.js` in this repo. It targets the **OpenCode 2.x**
+The canonical plugin is `packages/server/src/assets/opencode-torrix.plugin.js`; Torrix serves it
+from `/api/connect/opencode.sh` and `/api/connect/opencode.ps1`. It targets the **OpenCode 2.x**
 plugin API (`export default { id, setup }`); OpenCode 1.x rejects it at load with
-`failed to load plugin`. Copy it to your own project or global plugin directory:
+`failed to load plugin`. The one-command install writes it to the global plugin directory and
+saves the connection:
 
-```
-<project>/.opencode/plugins/torrix.js
-~/.config/opencode/plugins/torrix.js
+```bash
+curl -fsSL http://localhost:8088/api/connect/opencode.sh | TORRIX_API_KEY=trxk_... sh
 ```
 
-Then set the environment variables opencode starts with:
+To install by hand, copy the asset to `<project>/.opencode/plugins/torrix.js` or
+`~/.config/opencode/plugins/torrix.js`, then save `~/.torrix/opencode.json`:
+
+```json
+{"url":"http://localhost:8088","api_key":"trxk_..."}
+```
+
+Environment variables still work and override the file:
 
 ```
 TORRIX_API_KEY=trxk_...            # required; without it the plugin is inert

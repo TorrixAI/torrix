@@ -6,13 +6,8 @@ Geist (variable, latin + latin-ext)
   Licensed under the SIL Open Font License, Version 1.1.
   https://openfontlicense.org
 
-Space Grotesk (variable, latin + latin-ext)
-  Copyright 2018 The Space Grotesk Project Authors (https://github.com/floriankarsten/space-grotesk)
-  Licensed under the SIL Open Font License, Version 1.1.
-  https://openfontlicense.org
-
-JetBrains Mono (variable, latin + latin-ext)
-  Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
+Geist Mono (400, latin + latin-ext)
+  Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
   Licensed under the SIL Open Font License, Version 1.1.
   https://openfontlicense.org
 

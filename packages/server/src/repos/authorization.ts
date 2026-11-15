@@ -4,6 +4,7 @@ import type { ApprovalQuery, AuthorizationJoin, AuthorizationQuery, Authorizatio
 import type {
   AgentControlSettings,
   Approval,
+  ApprovalSignoff,
   AuthorizationDecisionRecord,
   AuthorizationRequest,
   Delegation,
@@ -21,6 +22,15 @@ export interface DefaultAgentControlSettings {
   approval_webhook_url: string | null;
   webhook_secret: string | null;
   require_grant: number;
+  approval_min_risk: "low" | "medium" | "high" | "critical";
+  rubber_stamp_seconds: number;
+  rubber_stamp_rate: number;
+  canary_interval_hours: number;
+  freeze_all: number;
+  freeze_reason: string | null;
+  freeze_at: string | null;
+  quarantine_after_denials: number;
+  quarantine_window_minutes: number;
 }
 
 export const AGENT_CONTROL_DEFAULTS: DefaultAgentControlSettings = {
@@ -33,6 +43,15 @@ export const AGENT_CONTROL_DEFAULTS: DefaultAgentControlSettings = {
   approval_webhook_url: null,
   webhook_secret: null,
   require_grant: 0,
+  approval_min_risk: "low",
+  rubber_stamp_seconds: 2,
+  rubber_stamp_rate: 95,
+  canary_interval_hours: 0,
+  freeze_all: 0,
+  freeze_reason: null,
+  freeze_at: null,
+  quarantine_after_denials: 0,
+  quarantine_window_minutes: 60,
 };
 
 export function createAuthorizationRepository(db: DbClient): AuthorizationRepository {
@@ -336,6 +355,19 @@ export function createAuthorizationRepository(db: DbClient): AuthorizationReposi
         [new Date().toISOString(), id],
       );
       return Boolean(row);
+    },
+
+    async addApprovalSignoff(signoff: ApprovalSignoff): Promise<void> {
+      await insertRow(db.engine, "approval_signoffs", signoff as unknown as Record<string, unknown>);
+    },
+
+    async listApprovalSignoffs(approvalId: string): Promise<ApprovalSignoff[]> {
+      const rows = await sqlAll<Record<string, unknown>>(
+        db.engine,
+        "SELECT * FROM approval_signoffs WHERE approval_id = ? ORDER BY created_at ASC",
+        [approvalId],
+      );
+      return rows as unknown as ApprovalSignoff[];
     },
 
     async expireStaleApprovals(nowIso: string): Promise<number> {

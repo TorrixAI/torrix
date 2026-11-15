@@ -35,13 +35,35 @@ else
 fi
 chmod +x "$tmp"
 
+# The console is a static build the binary reads from `torrix-web/` beside
+# itself, so the installer ships both.
+web_url="https://github.com/${REPO}/releases/latest/download/torrix-web.tar.gz"
+web_tmp="$(mktemp -d)"
+say "Downloading ${web_url}…"
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "$web_url" -o "$web_tmp/torrix-web.tar.gz" || fail "console download failed"
+else
+  wget -qO "$web_tmp/torrix-web.tar.gz" "$web_url" || fail "console download failed"
+fi
+tar -xzf "$web_tmp/torrix-web.tar.gz" -C "$web_tmp" || fail "console archive is corrupt"
+rm -f "$web_tmp/torrix-web.tar.gz"
+
 if [ -w "$BIN_DIR" ]; then
   mv "$tmp" "$BIN_DIR/torrix"
 else
   say "Installing to ${BIN_DIR} (sudo required)…"
   sudo mv "$tmp" "$BIN_DIR/torrix"
 fi
-say "Installed $("$BIN_DIR/torrix" --version 2>/dev/null || echo torrix) to ${BIN_DIR}/torrix"
+
+web_dest="${BIN_DIR}/torrix-web"
+sudo rm -rf "$web_dest" 2>/dev/null || rm -rf "$web_dest"
+if [ -w "$BIN_DIR" ]; then
+  mv "$web_tmp/torrix-web" "$web_dest"
+else
+  sudo mv "$web_tmp/torrix-web" "$web_dest"
+fi
+rm -rf "$web_tmp"
+say "Installed $("$BIN_DIR/torrix" --version 2>/dev/null || echo torrix) to ${BIN_DIR}/torrix (console in ${web_dest})"
 
 if [ "$os" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
   if [ ! -d "$DATA_DIR" ]; then

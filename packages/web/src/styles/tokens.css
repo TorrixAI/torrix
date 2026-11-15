@@ -1,0 +1,95 @@
+/* Design tokens: fonts, light palette and dark palette. */
+@font-face{font-family:"Geist";font-style:normal;font-weight:100 900;font-display:swap;
+  src:url("/ui/fonts/geist-latin-ext.woff2") format("woff2");
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:"Geist";font-style:normal;font-weight:100 900;font-display:swap;
+  src:url("/ui/fonts/geist-latin.woff2") format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"Geist Mono";font-style:normal;font-weight:400;font-display:swap;
+  src:url("/ui/fonts/geist-mono-latin-ext.woff2") format("woff2");
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:"Geist Mono";font-style:normal;font-weight:400;font-display:swap;
+  src:url("/ui/fonts/geist-mono-latin.woff2") format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+
+:root{
+  color-scheme:light;
+  --bg:#f6f5f1; --bg-2:#f0efea; --surface:#ffffff; --surface-2:#f0efea; --surface-3:#e8e6df; --surface-4:#dcd9d0;
+  --line:rgba(21,22,26,.10); --line-2:rgba(21,22,26,.20);
+  --text:#15161a; --text-2:#4b4c50; --text-3:#66676b; --text-mute:#66676b; --link:#3f6212;
+  --heading:#15161a; --placeholder:#8a8a86; --ink:#15161a;
+  --brand:#c9f25e; --brand-strong:#c9f25e; --brand-deep:#3f6212; --brand-fill:#c9f25e; --brand-text:#3f6212; --on-brand:#15161a;
+  --brand-hover:#bde84e; --brand-pressed:#aedb3f;
+  --brand-dim:rgba(201,242,94,.38); --brand-line:rgba(63,98,18,.35);
+  --focus-outline:#15161a; --focus-halo:#c9f25e;
+  --good:#2a6f4f; --good-dim:#ddebe2; --good-line:rgba(47,125,91,.28);
+  --bad:#b23a2e; --bad-dim:#f6e1dd; --bad-line:rgba(178,58,46,.26); --bad-strong:#8f2e24;
+  --warn:#7a5f12; --warn-dim:#f3eacb; --warn-line:rgba(122,95,18,.28);
+  --info:#4b4c50; --info-dim:#f0efea; --info-line:rgba(21,22,26,.16);
+  --violet:#8a3f83; --violet-dim:rgba(138,63,131,.10); --violet-line:rgba(138,63,131,.28);
+  --s1:#4f46c8; --s2:#0b7f78; --s3:#a8650f; --s4:#8a3f83; --s5:#52627a; --s6:#2b7fb8;
+  --trace-row-h:36px; --trace-row-h-compact:28px; --trace-rail-gap:var(--sp-5); --trace-rail-pad:8px;
+  --trace-edge-width:1.5px; --trace-edge-opacity:.7; --trace-node-surface:var(--surface); --trace-failure-ring:var(--bad);
+  --hero-series:#4d7c0f; --chart-grid:rgba(21,22,26,.06);
+  --chip-bg:#f0efea; --chip-on:#15161a; --track:#e8e6df; --nav-on:#ffffff;
+  --selection:rgba(21,22,26,.14); --t-dot-bg:#ffffff;
+  --sans:"Geist",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --display:"Geist",system-ui,-apple-system,sans-serif;
+  --mono:"Geist Mono",ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+  --shadow:none;
+  --shadow-sm:none;
+  --shadow-md:0 18px 48px -24px rgba(21,22,26,.28),0 2px 6px rgba(21,22,26,.05);
+  --shadow-blue:none;
+  --r:6px; --r-lg:8px; --r-xl:8px; --r-pill:6px;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px;
+  --motion:140ms cubic-bezier(.16,1,.3,1);
+  --wash:rgba(21,22,26,.035); --wash-2:rgba(21,22,26,.02);
+  --grid-dot:rgba(21,22,26,0); --grid-dot-hot:rgba(21,22,26,0); --mx:-500px; --my:-500px;
+  --row-hover:rgba(21,22,26,.03); --row-error:#f6e1dd;
+  --side-bg:#f6f5f1; --side-bg-2:#f0efea; --side-line:rgba(21,22,26,.10);
+  --side-text:#15161a; --side-text-2:#4b4c50; --side-text-3:#66676b;
+  --side-hover:rgba(21,22,26,.035); --side-active-bg:transparent; --side-active-text:#15161a;
+  --side-brand-text:#15161a; --side-btn-bg:transparent; --side-btn-hover:rgba(21,22,26,.035);
+  --topbar-bg:rgba(246,245,241,.94);
+  --scroll:#c9c7bf; --scroll-hover:#9a9993;
+  --bar-from:#4d7c0f; --bar-to:#4d7c0f;
+  --tooltip-bg:#15161a; --tooltip-line:#303136; --tooltip-text:#f6f5f1;
+}
+
+[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0e1114; --bg-2:#12161a; --surface:#151a1f; --surface-2:#1b2128; --surface-3:#222932; --surface-4:#2a323d;
+  --line:rgba(190,205,225,.12); --line-2:rgba(190,205,225,.22);
+  --text:#eceff3; --text-2:#c0c7d1; --text-3:#98a1ae; --text-mute:#a8b1be; --link:#d4f57a;
+  --heading:#f4f6f9; --placeholder:#727d8d; --ink:#eceff3;
+  --brand:#c9f25e; --brand-strong:#c9f25e; --brand-deep:#d4f57a; --brand-fill:#c9f25e; --brand-text:#d4f57a; --on-brand:#15161a;
+  --brand-hover:#bde84e; --brand-pressed:#aedb3f;
+  --brand-dim:rgba(201,242,94,.14); --brand-line:rgba(201,242,94,.42);
+  --focus-outline:#c9f25e; --focus-halo:#0e1114;
+  --good:#7fd1a8; --good-dim:rgba(47,125,91,.26); --good-line:rgba(127,209,168,.34);
+  --bad:#f29b91; --bad-dim:rgba(178,58,46,.26); --bad-line:rgba(242,155,145,.34); --bad-strong:#ffc1b9;
+  --warn:#e5c66f; --warn-dim:rgba(122,95,18,.30); --warn-line:rgba(229,198,111,.34);
+  --info:#c0c7d1; --info-dim:rgba(190,205,225,.08); --info-line:rgba(190,205,225,.20);
+  --violet:#d88bd0; --violet-dim:rgba(216,139,208,.14); --violet-line:rgba(216,139,208,.32);
+  --s1:#8f8cff; --s2:#4fd1c5; --s3:#e0a64a; --s4:#d88bd0; --s5:#9db0c9; --s6:#6bb6f0;
+  --trace-row-h:36px; --trace-row-h-compact:28px; --trace-rail-gap:var(--sp-5); --trace-rail-pad:8px;
+  --trace-edge-width:1.5px; --trace-edge-opacity:.7; --trace-node-surface:var(--surface); --trace-failure-ring:var(--bad);
+  --hero-series:#c9f25e; --chart-grid:rgba(190,205,225,.07);
+  --chip-bg:#222932; --chip-on:#eceff3; --track:#222932; --nav-on:#15161a;
+  --selection:rgba(190,205,225,.20); --t-dot-bg:#151a1f;
+  --shadow:none;
+  --shadow-sm:none;
+  --shadow-md:0 20px 52px -22px rgba(0,0,0,.8),0 2px 8px rgba(0,0,0,.45);
+  --shadow-blue:none;
+  --wash:rgba(190,205,225,.04); --wash-2:rgba(190,205,225,.025);
+  --grid-dot:rgba(190,205,225,0); --grid-dot-hot:rgba(190,205,225,0);
+  --row-hover:rgba(190,205,225,.04); --row-error:rgba(178,58,46,.18);
+  --side-bg:#12161a; --side-bg-2:#151a1f; --side-line:rgba(190,205,225,.12);
+  --side-text:#eceff3; --side-text-2:#c0c7d1; --side-text-3:#98a1ae;
+  --side-hover:rgba(190,205,225,.045); --side-active-bg:transparent; --side-active-text:#eceff3;
+  --side-brand-text:#f4f6f9; --side-btn-bg:transparent; --side-btn-hover:rgba(190,205,225,.045);
+  --topbar-bg:rgba(14,17,20,.94);
+  --scroll:#343c47; --scroll-hover:#4a5361;
+  --bar-from:#c9f25e; --bar-to:#c9f25e;
+  --tooltip-bg:#090b0d; --tooltip-line:#343c47; --tooltip-text:#eceff3;
+}

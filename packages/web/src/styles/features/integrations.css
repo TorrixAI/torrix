@@ -1,0 +1,5 @@
+/* Integrations — post-utilities overrides. */
+.int-code pre{white-space:pre;word-break:normal;overflow-x:auto;padding-right:56px}
+.int-code pre::-webkit-scrollbar{height:8px}
+.int-code pre::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}
+.int-code pre::-webkit-scrollbar-track{background:transparent}

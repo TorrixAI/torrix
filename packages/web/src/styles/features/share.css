@@ -1,0 +1,9 @@
+/* Share — post-utilities overrides. */
+.share-page{max-width:860px;margin:0 auto;padding:var(--sp-6) 22px 56px}
+.share-brand{display:flex;align-items:center;gap:10px;color:var(--text-2);font-weight:600;margin-bottom:22px}
+.share-brand svg{width:24px;height:24px}
+.share-brand .theme-toggle{margin-left:auto}
+.share-error{padding:40px 0;text-align:center;color:var(--text-2)}
+.share-error b{display:block;font-size:16px;color:var(--text);margin-bottom:6px}
+.share-foot{margin-top:26px;font-family:var(--sans);font-size:11px;color:var(--text-3)}
+.share-fill{background:var(--text-2)}

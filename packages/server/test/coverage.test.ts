@@ -170,7 +170,7 @@ test("masking enabled with no selected types masks every type", async () => {
       method: "PUT",
       url: "/api/governance/settings",
       headers: bearer(session.key),
-      payload: { pii_enabled: 1, pii_mask_input: 1, pii_mask_output: 1 },
+      payload: { pii_enabled: 1, pii_mask_input: 1, pii_mask_output: 1, pii_types: [] },
     });
     expect(put.statusCode).toBe(200);
     const settings = (JSON.parse(put.body) as { settings: { pii_types: string } }).settings;

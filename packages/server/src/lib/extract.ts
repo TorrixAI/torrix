@@ -371,10 +371,15 @@ export function extractAutoName(reqBody: Record<string, unknown>): string {
 
 interface SSEJson {
   model?: string;
+  modelVersion?: string;
   usage?: Record<string, unknown>;
+  usageMetadata?: Record<string, unknown>;
   choices?: Array<Record<string, unknown>>;
+  candidates?: Array<Record<string, unknown>>;
   id?: string;
   type?: string;
+  index?: number;
+  delta?: Record<string, unknown>;
   message?: Record<string, unknown>;
   content_block?: { type?: string; index?: number; name?: string };
   content_block_delta?: { delta?: Record<string, unknown>; index?: number };
@@ -408,6 +413,9 @@ export function extractFromSSEChunks(accumulated: string): Partial<Extracted> {
     if (typeof json.model === "string") {
       model = json.model;
     }
+    if (typeof json.modelVersion === "string") {
+      model = model ?? json.modelVersion;
+    }
     if (json.type === "message_start" && json.message) {
       model = (json.message.model as string) ?? model;
       const usage = (json.message.usage as Record<string, unknown>) ?? {};
@@ -415,35 +423,58 @@ export function extractFromSSEChunks(accumulated: string): Partial<Extracted> {
       cacheReadTokens = (usage.cache_read_input_tokens as number) ?? null;
       cacheCreationTokens = (usage.cache_creation_input_tokens as number) ?? null;
     }
-    if (json.type === "message_delta" || (json.message_delta && json.message_delta.usage)) {
-      const delta = json.message_delta;
-      if (delta) {
-        outputTokens = ((delta.usage as Record<string, unknown>)?.output_tokens as number) ?? outputTokens;
-        const stop = ((delta.delta as Record<string, unknown>)?.stop_reason as string) ?? null;
-        if (stop) {
-          finishReason = stop;
-        }
+    if (json.type === "message_delta") {
+      // Anthropic sends { type: "message_delta", delta: { stop_reason }, usage }
+      // with the payload on `delta`, not on a `message_delta` wrapper.
+      const delta = json.delta ?? json.message_delta?.delta ?? {};
+      const usage = json.usage ?? json.message_delta?.usage ?? {};
+      outputTokens = (usage.output_tokens as number) ?? outputTokens;
+      const stop = (delta.stop_reason as string) ?? null;
+      if (stop) {
+        finishReason = stop;
       }
     }
     if (json.type === "content_block_start" && json.content_block) {
       if (json.content_block.type === "tool_use") {
-        const idx = json.content_block.index ?? 0;
+        const idx = json.index ?? json.content_block.index ?? 0;
         anthropicTools.set(idx, { name: String(json.content_block.name ?? ""), args: "" });
       }
     }
-    if (json.type === "content_block_delta" && json.content_block_delta) {
-      const delta = json.content_block_delta.delta ?? {};
-      if (delta.type === "text" && typeof delta.text === "string") {
+    if (json.type === "content_block_delta") {
+      const delta = json.delta ?? json.content_block_delta?.delta ?? {};
+      // Anthropic emits `text_delta`; some OpenAI-compatible gateways relabel it `text`.
+      if ((delta.type === "text_delta" || delta.type === "text") && typeof delta.text === "string") {
         responseText += delta.text;
       } else if (delta.type === "thinking_delta" && typeof delta.thinking_delta === "string") {
         thinkingText += delta.thinking_delta;
       } else if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
-        const idx = json.content_block_delta.index ?? 0;
+        const idx = json.index ?? json.content_block_delta?.index ?? 0;
         const tool = anthropicTools.get(idx);
         if (tool) {
           tool.args += delta.partial_json;
         }
       }
+    }
+
+    // Gemini `:streamGenerateContent?alt=sse` puts the text and usage in
+    // candidates/usageMetadata rather than OpenAI's choices/usage envelope.
+    if (Array.isArray(json.candidates)) {
+      const candidate = json.candidates[0];
+      const content = (candidate?.content as Record<string, unknown> | undefined) ?? {};
+      for (const part of (content.parts as Array<Record<string, unknown>> | undefined) ?? []) {
+        if (typeof part.text === "string") {
+          responseText += part.text;
+        }
+      }
+      if (typeof candidate?.finishReason === "string") {
+        finishReason = candidate.finishReason.toLowerCase();
+      }
+    }
+    if (json.usageMetadata) {
+      const meta = json.usageMetadata;
+      inputTokens = inputTokens ?? (meta.promptTokenCount as number) ?? null;
+      outputTokens = (meta.candidatesTokenCount as number) ?? outputTokens;
+      cacheReadTokens = cacheReadTokens ?? (meta.cachedContentTokenCount as number) ?? null;
     }
 
     const choices = json.choices ?? [];
@@ -538,7 +569,54 @@ export function promptHash(messageJson: string): string | null {
   return hash;
 }
 
-/** Text of the last user message in an OpenAI- or Anthropic-shaped request body. */
+/**
+ * Prose check for stored prompts. Agent loops often put tool output, JSON or a
+ * pasted file in the next user message; that text is not the prompt a person
+ * typed and must not become the turn label.
+ */
+export function looksLikeHumanPrompt(text: string | null | undefined): text is string {
+  const value = (text ?? "").replace(/\r\n?/g, "\n").trim();
+  if (!value) return false;
+  if (value.length > 2000) return false;
+  if (/^[\[{]/.test(value)) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === "object") return false;
+    } catch {
+      // Not JSON, so keep checking whether it reads like prose.
+    }
+  }
+  const compact = value.replace(/\s+/g, "");
+  const whitespace = value.length - compact.length;
+  const words = value.match(/[A-Za-z][A-Za-z'’-]{1,}/g) ?? [];
+  if (value.length >= 80 && whitespace === 0) return false;
+  if (value.length >= 80 && words.length < 3) return false;
+  if (value.length > 300 && whitespace / value.length < 0.02) return false;
+  const codeish = compact.match(/[0-9{}[\]()<>\\/|=;:_~^`]/g)?.length ?? 0;
+  if (compact.length > 0 && codeish / compact.length > 0.4) return false;
+  return true;
+}
+
+function userTextFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const part of content) {
+    if (typeof part === "string") {
+      parts.push(part);
+      continue;
+    }
+    if (!part || typeof part !== "object") continue;
+    const record = part as Record<string, unknown>;
+    if (record.type === "tool_result" || record.type === "function_call_output" || record.type === "tool_use") continue;
+    if (record.type === "image" || record.type === "input_image" || record.type === "image_url") continue;
+    if (typeof record.text === "string") parts.push(record.text);
+    else if (typeof record.content === "string") parts.push(record.content);
+  }
+  return parts.join("\n").trim();
+}
+
+/** Text of the first human message in an OpenAI- or Anthropic-shaped request body. */
 export function extractUserPrompt(requestBody: string | null | undefined): string | null {
   if (!requestBody) {
     return null;
@@ -547,29 +625,21 @@ export function extractUserPrompt(requestBody: string | null | undefined): strin
   try {
     parsed = JSON.parse(requestBody) as Record<string, unknown>;
   } catch {
-    return null;
+    const raw = requestBody.trim();
+    return looksLikeHumanPrompt(raw) ? raw : null;
   }
-  const messages = parsed.messages;
-  if (!Array.isArray(messages)) {
-    return null;
-  }
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i] as { role?: string; content?: unknown };
-    if (message.role !== "user") {
-      continue;
-    }
-    if (typeof message.content === "string") {
-      return message.content;
-    }
-    if (Array.isArray(message.content)) {
-      const text = message.content
-        .map((part) => (part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string" ? String((part as { text: string }).text) : ""))
-        .filter(Boolean)
-        .join("\n");
-      if (text) {
-        return text;
-      }
-    }
+  const messages = Array.isArray(parsed.messages)
+    ? parsed.messages
+    : Array.isArray(parsed.contents)
+      ? parsed.contents
+      : [];
+  for (const entry of messages) {
+    if (!entry || typeof entry !== "object") continue;
+    const message = entry as { role?: unknown; content?: unknown; parts?: unknown };
+    const role = String(message.role ?? "").toLowerCase();
+    if (role !== "user" && role !== "human") continue;
+    const text = userTextFromContent(message.content ?? message.parts);
+    if (looksLikeHumanPrompt(text)) return text;
   }
   return null;
 }

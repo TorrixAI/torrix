@@ -12,8 +12,16 @@ adds.
 
 The judge is any OpenAI-compatible model you point Torrix at. It grades things:
 
-- **Run judging.** Open a run and use the judge panel, or select runs on the Runs page and choose
-  **Judge selected**. The score and a short rationale are stored on the run.
+- **Trace and run judging.** Open a trace and choose **Judge this trace**, or select trace groups on
+  the Runs page and choose **Judge selected**. One judge call covers the whole trace: the first human
+  prompt, final answer, ordered tool/step digest, errors and totals. The score, one-line reason,
+  confidence, first failing run and judge cost are stored as a trace judgment. Run lists keep a
+  per-run judge for single-run traces and ungrouped lists. Sessions show the share of their traces
+  that are good.
+- **Queued judging.** Trace jobs are capped at 200 traces, skip traces already judged unless you ask
+  to re-judge, and show an estimate before starting. Progress, Stop and a good/bad/failed summary are
+  visible on the Runs page. Judge calls use the same guarded outbound request path as other judge
+  endpoints.
 - **Dataset scoring.** Offline evals score captured runs against golden answers by exact match or
   containment first; the judge is used when those are inconclusive. CSV and JSON import are built
   in.
@@ -41,9 +49,9 @@ Routed runs record the model you asked for and the one that served it, and respo
 `x-torrix-routed-from` header. The same page lists **SLM signals**: clusters of similar prompts that
 would be much cheaper on a smaller model, which also feed the Insights savings panel.
 
-## Policy engine and review queue (Pro)
+## Content rules and review queue (Pro)
 
-Policies inspect requests before they leave and responses before they are stored:
+Content rules inspect requests before they leave and responses before they are stored:
 
 - Match on keywords, regular expressions, PII, model, a list of allowed models, token counts or a
   cost threshold.
@@ -59,6 +67,10 @@ and the run records the outcome. PII masking itself is available in every editio
 Observing shows what agents did. The control plane decides what they may do first, and keeps a
 record of every decision.
 
+- **Governed coverage.** The dashboard compares the agents seen in traffic with the active agent
+  registry and shows a percentage, the uncovered agent names with their runs and cost, and registered
+  agents with no traffic. The percentage is visible in every edition; registering the agents and
+  giving them delegations and policies is what turns coverage into control.
 - **Principals** are the sources of authority: a person, a service, an application or an external
   system.
 - **Agents** get an identity and a credential of their own. **Delegations** grant an agent a subset
@@ -68,12 +80,12 @@ record of every decision.
   see what changed. **Risk scoring** rates each action; the settings decide what a high or critical
   rating does.
 - **Policy packs** are reviewed starting points for procurement, finance and customer-data controls.
-  Install one under **Agents > Policies**; it creates ordinary editable policies: purchases at or
+  Install one under **Agents > Authorization policies**; it creates ordinary editable policies: purchases at or
   above 10,000 need approval and those at or above 50,000 are denied, bank-detail changes need
   review, payments at or above 25,000 need review, vendor master changes need review, customer-data
   exports need review and bulk exports at or above 10,000 records are denied. Installs skip
   policies with the same name, so they are safe to repeat.
-- **Testing a policy before you turn it on.** On **Agents > Policies**, choose **Test against
+- **Testing a policy before you turn it on.** On **Agents > Authorization policies**, choose **Test against
   history** while writing or editing a policy, or **Test turning off** on an existing one. Torrix
   replays your recorded requests from the last 7, 30 or 90 days and shows how many would get a
   different answer and which ones. Nothing is stored, no approval is used up, and no one is
@@ -87,8 +99,28 @@ record of every decision.
   those numbers. Observe-only records are kept for 90 days, and the signed record of a decision notes
   when an observe-only policy matched. A good order for a new rule is: test against history, observe
   only for a few days, then enforce.
+- **Suggestions from observed behavior.** On **Agents > Authorization policies**, choose **Suggest
+  from observed behavior**, pick an agent and a window of 7, 30 or 90 days, and Torrix drafts a
+  least-privilege delegation plus a starter policy set from that agent's governed decisions and
+  observed tool calls. The draft lists the actions and resources it actually used, the amount range
+  and working hours it stayed inside, and a plain-language reason for each line. Denied attempts,
+  rarely seen actions and tool calls that never went through authorization are listed as outliers
+  instead of being allowed quietly. The suggested policies are created in observe-only mode, and the
+  same screen can replay them against the window before you enforce anything. The draft is read-only:
+  it writes no delegation, policy, decision or ledger entry. The API is
+  `POST /api/v1/policies/suggest`.
 - **Approvals** are how a human signs off on a held action. They are bound to the exact request, can
   be used once, and expire.
+- **Oversight you can prove.** The Approvals page carries an oversight panel with the approval and
+  rejection rate, median and p95 time to decide, the number of decisions made within a fast
+  threshold, and a rubber-stamp flag. The flag is a practitioner heuristic (a near-total approval
+  rate with very fast decisions), not a validated measure, and the panel says so. Administrators can
+  inject a **canary**: a known-bad request that looks like a normal supplier bank-detail change.
+  Rejecting it records a catch; approving it records a miss. **Sign report** writes the aggregate
+  metrics and canary results into the tamper-evident action ledger (Enterprise). Per-reviewer
+  figures are off by default and only administrators can turn them on. A separate setting,
+  **Auto-approve below risk**, can let low-risk held requests skip the queue; the default is `low`,
+  which means every held request still waits for a person.
 - **The governed MCP gateway** is the main integration point. Register a downstream MCP server in
   the console, then point the agent's MCP client at the gateway URL for that server with the agent's
   Torrix credential. Tool discovery is filtered to what the agent may do, and every tool call is
@@ -104,6 +136,26 @@ record of every decision.
 - **Per-grant revocation** lists every delegation grant token with its creation time, expiry and
   status under **Grants** on a delegation. Revoking a grant denies it on the next call, and "revoke
   all" invalidates every outstanding token for that delegation.
+- **Kill switch and containment.** **Agents > Settings > Containment** can freeze every agent, one
+  agent or one tool, with a reason. Frozen calls are denied with `agents_frozen` or `tool_frozen`
+  before any delegation or policy is evaluated, and the freeze and unfreeze are written to the
+  tamper-evident ledger. Each agent can have a decisions-per-minute limit. Automatic quarantine
+  freezes an agent after a configured number of denials inside a time window. **Run freeze drill**
+  freezes one agent, checks that the engine refuses a call, restores the agent and records the
+  result, so the switch can be tested before an incident. The controls are administrator-only.
+- **Coding agents.** The Claude Code plugin has a `PreToolUse` hook and the opencode plugin has an
+  `execute.before` hook. Both call `/api/v1/authorize` before a tool runs and can allow, deny or hold
+  the call. The default is observation only. Set the guard to `observe` to see what would happen, or
+  `enforce` to block a denied tool and ask a person when the decision is held. A separate switch
+  decides whether an unreachable Torrix fails open or closed. The tool name is the action, so a
+  delegation and a policy must allow tools such as `Bash`, `Edit` or `mcp__server__tool`. The hook
+  needs a governed agent credential with the `authorize` scope.
+- **Other gateways can use Torrix as their decision point.** `POST /api/v1/authorize/external`
+  accepts an account API key and a governed `agent_id`, runs the same delegation, policy, risk,
+  approval and ledger path, and returns `decision`, `reasonCode`, `requestId`, `decisionId`,
+  `approvalId` and the signed ledger entry. Envoy, Kong, OPA-style callers and in-house gateways do
+  not need the Torrix SDK or an agent credential. A read-only key is refused, and the agent must
+  belong to the caller's account. Held calls can be retried with `approval_id` after a human decides.
 - **Agents that do not speak MCP** can call the authorization endpoint before they act, and then
   proceed only on an allow.
 - **Agent identity providers** let an agent authenticate with its existing enterprise token instead
@@ -116,10 +168,30 @@ record of every decision.
 
 Agents from any platform are governed the same way: Claude Code, opencode, Cursor, the OpenAI
 Agents SDK, LangGraph, n8n, or something you wrote yourself. The console has pages for the registry,
-delegations, policies, approvals, MCP servers, the permission graph and the activity trail.
+delegations, authorization policies, approvals, MCP servers, the who-can-do-what view and the activity trail.
 
 The cap counts **active** agents. Suspending, revoking or expiring an agent frees its place, so
 replacing an agent never needs an upgrade. Enterprise removes the cap.
+
+## Anchored evidence and auditor packs (Enterprise)
+
+The action ledger proves that recorded decisions have not changed since they were written. Anchors
+extend that proof to a point in time:
+
+- **Create anchor** on **Compliance > Evidence pack and anchors** signs the current ledger head and
+  records the anchor in the ledger. Add a witness URL to send the head to an outside HTTP service;
+  Torrix stores the witness id and a digest of the response, never the response body.
+- **Download evidence pack** produces one signed JSON file with the agent inventory, delegations,
+  policy versions in force, decision totals, approval oversight and canary results, containment
+  drills, the signed ledger export and the anchors. The pack maps the evidence to EU AI Act Articles
+  12 and 14, the NIST AI RMF, ISO 42001 and the NAIC language. Validate the pack with your auditor or
+  broker before you rely on it.
+- **Auditor tokens.** An administrator can mint a `trxv_` token that can read the evidence pack,
+  anchors and ledger verification only. It cannot read runs, prompts, settings or other data, and it
+  cannot mint more tokens. Revoke it from the same panel.
+- **Offline verification.** `bun run anchor:verify anchor.json` checks the receipt with the embedded
+  public key. Add `--jwks jwks.json` to pin the published key, and `--export ledger-export.json` to
+  check that the anchored head is present in the export. The server is not involved.
 
 ## Action ledger and evidence bundles (Pro)
 
@@ -235,7 +307,7 @@ Assertions are single-use: the `jti` is recorded, so a replay is rejected.
   signed token that names the agent, the tool, the exact arguments and the decision. Your downstream
   server can verify it offline against Torrix's public keys, so it can refuse anything that did not
   pass through the gateway.
-- **Permission graph**: a materialized view of who can reach which tool through which chain.
+- **Who can do what**: a materialized view of who can reach which tool through which chain.
 - **Business record connectors**: resolve records from SAP, ServiceNow or Salesforce before an agent
   acts on them, using the customer's own OAuth2 credentials.
 - **Directory sync**: bring people and service identities in from Entra ID, Okta or any SCIM 2.0

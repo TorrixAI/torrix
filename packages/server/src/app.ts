@@ -9,7 +9,7 @@ import { authRoute } from "./routes/auth";
 import { proxyRoute } from "./routes/proxy";
 import { apiRoute } from "./routes/api";
 import { ingestRoute } from "./routes/ingest";
-import { lockedPageHtml, uiRoute } from "./routes/ui";
+import { uiRoute, readSpaHtml } from "./routes/ui";
 import { metricsRoute } from "./routes/metrics";
 import { otelRoute } from "./routes/otel";
 import { mcpProxyRoute } from "./routes/mcpProxy";
@@ -41,11 +41,40 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     host: options.host ?? new ExtensionHost(options.extensions ?? [], options.config.license),
   };
   deps.host.attach(deps);
-  deps.host.setLockedRenderer((info) => lockedPageHtml(deps.repos, deps.config, deps.host, info, null));
+  // Gated /ui pages serve the SPA build; the React console renders the upgrade
+  // card for whichever feature the request needed.
+  deps.host.setUiFallback(() => readSpaHtml());
   const app = Fastify({
     ignoreTrailingSlash: true,
+    // T3 Code trace ids embed escaped thread metadata and routinely exceed
+    // Fastify's 100-character parameter default; the console route must still
+    // serve the SPA shell instead of answering 414.
+    maxParamLength: 2048,
     logger: { level: "info" },
     bodyLimit: 25_000_000,
+    // Node/Bun reject a malformed request line or header before routing, so the
+    // request never reaches a route (a lowercase method such as `post` does it).
+    // Answer with a JSON body that names the problem instead of Fastify's opaque
+    // "Client Error", which reads like a Torrix bug.
+    clientErrorHandler: (error, socket) => {
+      if (error.code === "ECONNRESET" || socket.destroyed) {
+        return;
+      }
+      const known: Record<string, { status: number; label: string; message: string }> = {
+        ERR_HTTP_REQUEST_TIMEOUT: { status: 408, label: "Request Timeout", message: "Client Timeout" },
+        HPE_HEADER_OVERFLOW: { status: 431, label: "Request Header Fields Too Large", message: "Exceeded maximum allowed HTTP header size" },
+      };
+      const hit = known[error.code];
+      const status = hit?.status ?? 400;
+      const body = JSON.stringify({
+        error: "malformed_request",
+        message: hit?.message ?? "Malformed HTTP request. HTTP methods must be uppercase (use POST, not post); check the request line, headers and body.",
+        statusCode: status,
+      });
+      if (socket.writable) {
+        socket.end(`HTTP/1.1 ${status} ${hit?.label ?? "Bad Request"}\r\nContent-Length: ${Buffer.byteLength(body)}\r\nContent-Type: application/json\r\n\r\n${body}`);
+      }
+    },
   });
 
   await app.register(cors, { origin: true });

@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppDeps } from "../app";
 import type { MigrationDirs, MigrationFiles } from "../db/migrate";
 import type { RateRule } from "../lib/rateLimit";
-import type { PolicyVerdict, Run, SlmOpportunity } from "./domain";
+import type { PolicyVerdict, Run, SlmOpportunity, TraceJudgment } from "./domain";
 import type { Edition } from "./editions";
 
 /** One licensable capability contributed by an extension. */
@@ -148,6 +148,8 @@ export interface Assist {
   clusterRunsByIntent(runs: Run[]): Promise<IntentCluster[]>;
   /** Judges one stored run; false when no judge is configured, so batch callers can stop early. */
   judgeRun(userId: string, run: Run, options: { apply: boolean }): Promise<boolean>;
+  /** Judges one whole trace; null when the judge is unavailable or unconfigured. */
+  judgeTrace(userId: string, traceId: string, options: { apply: boolean; criteria?: string; expected?: string | null }): Promise<TraceJudgment | null>;
 }
 
 export const NO_ASSIST: Assist = {
@@ -156,20 +158,8 @@ export const NO_ASSIST: Assist = {
   slmOpportunities: async () => [],
   clusterRunsByIntent: async () => [],
   judgeRun: async () => false,
+  judgeTrace: async () => null,
 };
-
-/** Places in core console pages where an edition can render its own panels. */
-export type UiSlot = "governance.panels" | "datasets.judge" | "run.judge" | "project.onlineEval" | "projects.script";
-
-export interface UiSlotInput {
-  userId: string;
-  runId?: string;
-  projectId?: string;
-  canEdit?: boolean;
-  datasets?: Array<{ id: string; name: string | null }>;
-}
-
-export type UiSlotRenderer = (ctx: ExtensionContext, input: UiSlotInput) => Promise<string>;
 
 /** One typed event an edition attaches to a trace, e.g. an authorization decision. */
 export interface TraceAnnotation {
@@ -223,8 +213,6 @@ export interface TorrixExtension {
   /** Typed events for a trace view (authorization decisions and the like). Best effort. */
   traceAnnotations?(ctx: ExtensionContext, input: TraceAnnotationInput): Promise<TraceAnnotation[]>;
   assist?(ctx: ExtensionContext): Partial<Assist>;
-  /** Console panels for core page slots; an empty result lets core show its upgrade teaser. */
-  ui?: Partial<Record<UiSlot, UiSlotRenderer>>;
   /** Extra sign-in options for the login page, e.g. single sign-on. */
   loginProviders?(ctx: ExtensionContext): Promise<Array<{ label: string; href: string }>>;
   /** Called after a person scores a run (1 good, 0 bad). */

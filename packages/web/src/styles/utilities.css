@@ -1,0 +1,7 @@
+/* Shared single-purpose classes used by TSX instead of inline style objects.
+   Loaded with the components, before Tailwind, so utilities can still win a
+   tie when a page needs to override one. */
+.tcell-muted{color:var(--text-3)}
+.cell-truncate{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grid-2-12{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3)}
+.actions-end{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}

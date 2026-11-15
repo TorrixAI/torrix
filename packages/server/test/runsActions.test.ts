@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Run } from "../src/core/domain";
-import { bearer, createTestApp, seedSession, type TestApp } from "./helpers";
+import { bearer, createTestApp, expectSpaShell, seedSession, type TestApp } from "./helpers";
 
 async function seedProject(ctx: TestApp, userId: string): Promise<string> {
   const id = crypto.randomUUID();
@@ -226,9 +226,8 @@ test("compare, analytics, search and insights endpoints", async () => {
 
     const analyticsPage = await ctx.app.inject({ method: "GET", url: `/ui/analytics?project=${projectId}`, headers: bearer(session.key) });
     expect(analyticsPage.statusCode).toBe(200);
-    expect(analyticsPage.body).toContain("Cost by project");
-    expect(analyticsPage.body).toContain("project Default");
-    expect(analyticsPage.body).toContain(`/ui/runs?project=${projectId}`);
+    expectSpaShell(analyticsPage.body);
+    // The "Cost by project" table is the by-project payload above, rendered client-side.
 
     const search = await ctx.app.inject({ method: "GET", url: "/api/search?q=actions", headers: bearer(session.key) });
     expect(search.statusCode).toBe(200);

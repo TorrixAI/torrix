@@ -1,0 +1,16 @@
+/* Timeline component rules. */
+.timeline{margin:2px 0 6px 5px;border-left:1px solid var(--line-2);padding-left:22px}
+.t-item{position:relative;padding:var(--sp-3) 0;border-bottom:1px solid var(--line)}
+.t-item:last-child{border-bottom:none}
+.t-dot{position:absolute;left:-27px;top:17px;width:9px;height:9px;border-radius:50%;background:var(--t-dot-bg);border:2px solid var(--text-3);box-shadow:0 0 0 3px var(--bg)}
+.t-dot.request{border-color:var(--brand)}
+.t-dot.prompt{border-color:var(--brand)}
+.t-dot.response{border-color:var(--good)}
+.t-dot.error{border-color:var(--bad)}
+.t-dot.thinking{border-color:var(--warn)}
+.t-dot.tool_call{border-color:var(--violet)}
+.t-head{display:flex;gap:10px;align-items:baseline;margin-bottom:5px}
+.t-type{font-family:var(--sans);font-size:11px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text-3)}
+.t-time{font-size:11px;color:var(--text-3);font-family:var(--sans)}
+.t-msg{font-family:var(--sans);font-size:12px;line-height:1.62;color:var(--text-2);white-space:pre-wrap;word-break:break-word;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:var(--sp-3);margin-top:6px}

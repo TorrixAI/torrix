@@ -2,6 +2,7 @@ import type { DbClient } from "../db/client";
 import { sqlAll, sqlGet, sqlRun, type SqlValue } from "../db/sql";
 import type { AuditQuery, AuditRepository, GovernanceRepository } from "../core/ports";
 import type { AuditEntry, GovernanceSettings, Policy, ReviewItem, ReviewState } from "../core/domain";
+import { SECRET_TYPES } from "../lib/pii";
 
 const POLICY_COLUMNS = [
   "id", "user_id", "project_id", "name", "enabled", "action", "stage", "match_kind",
@@ -83,11 +84,14 @@ export function createAuditRepository(db: DbClient): AuditRepository {
 }
 
 const DEFAULT_SETTINGS: Omit<GovernanceSettings, "user_id" | "updated_at"> = {
-  pii_enabled: 0,
-  pii_types: JSON.stringify(["email", "phone", "card", "ssn", "api_key"]),
+  // New instances mask credential shapes from the first run. Existing rows are
+  // copied by migration 0022 with the old defaults, so upgrades keep their
+  // current behavior; personal-data types remain opt-in.
+  pii_enabled: 1,
+  pii_types: JSON.stringify(SECRET_TYPES),
   pii_placeholder: "[redacted]",
   pii_mask_input: 1,
-  pii_mask_output: 0,
+  pii_mask_output: 1,
   human_review_enabled: 0,
   audit_enabled: 1,
 };
@@ -103,10 +107,24 @@ export function createGovernanceRepository(db: DbClient): GovernanceRepository {
     },
 
     async updateSettings(userId: string, fields: Partial<GovernanceSettings>): Promise<void> {
+      const defaults = DEFAULT_SETTINGS;
       await sqlRun(
         db.engine,
-        "INSERT OR IGNORE INTO governance_settings (user_id, updated_at) VALUES (?, ?)",
-        [userId, new Date().toISOString()],
+        `INSERT OR IGNORE INTO governance_settings
+           (user_id, pii_enabled, pii_types, pii_placeholder, pii_mask_input, pii_mask_output,
+            human_review_enabled, audit_enabled, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          userId,
+          defaults.pii_enabled,
+          defaults.pii_types,
+          defaults.pii_placeholder,
+          defaults.pii_mask_input,
+          defaults.pii_mask_output,
+          defaults.human_review_enabled,
+          defaults.audit_enabled,
+          new Date().toISOString(),
+        ],
       );
       const entries = Object.entries(fields).filter(
         ([k, v]) => k !== "user_id" && k !== "updated_at" && v !== undefined,

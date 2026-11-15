@@ -14,7 +14,7 @@ import { sqlRun } from "../db/sql";
 import { PROMPT_NAME_RE, extractVariables, mergeVariables } from "../lib/prompts";
 import { retainEvalKey, runEvaluation } from "../lib/evalRunner";
 import { monthStart, runWeeklyDigest, spendSince, dispatchWebhook } from "../lib/costGate";
-import { resolveProjectScope } from "./ui";
+import { collectDescendantRuns } from "../lib/runTree";
 import { calculateCost, detectProvider, getCostComparison, removePricingOverride, setPricingOverride } from "../lib/pricing";
 import { recordAudit, clientIp } from "../lib/audit";
 import { encryptSecret } from "../lib/secrets";
@@ -25,7 +25,9 @@ import { QueryError, runReadOnlyQuery } from "../lib/sqlConsole";
 import { cachingInsights, generateTraceInsights, getInsights, loadCachedTraceInsights, slmSavingsInsights } from "../lib/insights";
 import { savingsReport } from "../lib/savings";
 import { updateCommand } from "../lib/updateCheck";
-import type { ListOptions } from "../core/ports";
+import { lockedFeature } from "../core/lockedFeatures";
+import { applyProjectScope, resolveProjectScope } from "./ui";
+import type { ListOptions, RunListFilters, TraceGroup } from "../core/ports";
 import type { AuthResult, ApiKey, Prompt, PromptVersion, Dataset, DatasetRow, Eval, EvalScorer, AlertSettings, CostUsageRow, Run, ExportConfig, User, JudgeSettings, OnlineEvalConfig, OnlineEvalScorer, Events } from "../core/domain";
 
 export interface ApiDeps {
@@ -33,6 +35,84 @@ export interface ApiDeps {
   config: ServerConfig;
   host: ExtensionHost;
   env?: NodeJS.ProcessEnv;
+}
+
+interface JudgeJobState {
+  id: string;
+  userId: string;
+  kind: "run" | "trace";
+  traceIds: string[];
+  runIds?: string[];
+  total: number;
+  completed: number;
+  good: number;
+  bad: number;
+  failed: number;
+  status: "queued" | "running" | "stopped" | "done";
+  stopped: boolean;
+  errors: Array<{ trace_id: string; error: string }>;
+  createdAt: string;
+}
+
+const judgeJobs = new Map<string, JudgeJobState>();
+
+async function scoreTraceRecord(repos: Repositories, userId: string, traceId: string, score: number | null, reason: string | null): Promise<string | null> {
+  const now = new Date().toISOString();
+  await repos.judge.saveTraceJudgment({
+    id: crypto.randomUUID(), user_id: userId, trace_id: traceId, score,
+    reason, confidence: null, first_failing_run_id: null,
+    provider: null, model: null, criteria: "manual",
+    input_tokens: null, output_tokens: null, cost_usd: 0,
+    raw: null, error: null, created_at: now,
+  });
+  const { runs } = await repos.runs.listGroup(userId, { kind: "trace", id: traceId, limit: 500, offset: 0 });
+  const outcome = [...runs].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+  if (outcome) {
+    await repos.runs.update(outcome.id, { score, score_note: reason ? `trace score: ${reason}`.slice(0, 500) : "trace score", scored_at: score == null ? null : now });
+    return outcome.id;
+  }
+  return null;
+}
+
+async function attachTraceScores(repos: Repositories, userId: string, kind: "trace" | "session", groups: TraceGroup[]): Promise<TraceGroup[]> {
+  if (!groups.length) return groups;
+  if (kind === "trace") {
+    const judgments = await repos.judge.listTraceJudgments(userId, groups.map((group) => group.id));
+    const byTrace = new Map(judgments.map((judgment) => [judgment.trace_id, judgment]));
+    return groups.map((group) => {
+      const judgment = byTrace.get(group.id);
+      return { ...group, trace_score: judgment?.score ?? null, trace_score_reason: judgment?.reason ?? null, first_failing_run_id: judgment?.first_failing_run_id ?? null };
+    });
+  }
+  const runs = await repos.runs.listByGroupIds(userId, "session", groups.map((group) => group.id), {}, 10_000);
+  const tracesBySession = new Map<string, Set<string>>();
+  for (const run of runs) {
+    if (!run.session_id || !run.trace_id) continue;
+    const set = tracesBySession.get(run.session_id) ?? new Set<string>();
+    set.add(run.trace_id);
+    tracesBySession.set(run.session_id, set);
+  }
+  const allTraceIds = [...new Set([...tracesBySession.values()].flatMap((set) => [...set]))];
+  const judgments = await repos.judge.listTraceJudgments(userId, allTraceIds);
+  const byTrace = new Map(judgments.map((judgment) => [judgment.trace_id, judgment]));
+  return groups.map((group) => {
+    const traces = [...(tracesBySession.get(group.id) ?? [])];
+    const judged = traces.map((trace) => byTrace.get(trace)).filter(Boolean);
+    const good = judged.filter((judgment) => judgment!.score === 1).length;
+    return { ...group, session_score: judged.length ? good / judged.length : null, session_judged: judged.length, session_good: good };
+  });
+}
+
+function parseProjectScope(raw: string | null): string[] {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map((value) => String(value)) : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<void> {
@@ -62,12 +142,17 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     const updateAvailable = await repos.instance.get("update_available");
     return {
       edition: config.edition,
+      version: config.version,
       maxRuns: config.editionConfig.maxRuns,
       retentionDays: config.editionConfig.retentionDays,
       maxGoldenRuns: config.editionConfig.maxGoldenRuns,
       maxPlaygroundRuns: config.editionConfig.maxPlaygroundRuns,
       maxDatasets: config.editionConfig.maxDatasets,
       currentRuns,
+      is_demo: config.isDemo,
+      // Licensed feature ids, so the console can render an upgrade card instead
+      // of an error for paid surfaces that are not available on this instance.
+      features: deps.host.features().filter((feature) => deps.host.featureAllowed(feature.id)).map((feature) => feature.id),
       update_available: config.updateRepo && updateAvailable && updateAvailable !== config.version ? updateAvailable : null,
       update_command: updateCommand(config.docker),
     };
@@ -81,7 +166,7 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
   app.get("/api/playground/meta", { preHandler: authenticate }, async () => ({
     providers: [
       { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", endpoint: "/chat/completions", format: "openai", auth: "bearer", models: ["gpt-5", "gpt-4o", "gpt-4o-mini", "o4-mini"] },
-      { id: "anthropic", label: "Anthropic", baseUrl: "https://api.anthropic.com/v1", endpoint: "/messages", format: "anthropic", auth: "x-api-key", models: ["claude-opus-4", "claude-sonnet-4", "claude-sonnet-4-5", "claude-haiku-3-5-20241022"] },
+      { id: "anthropic", label: "Anthropic", baseUrl: "https://api.anthropic.com/v1", endpoint: "/messages", format: "anthropic", auth: "x-api-key", models: ["claude-opus-4", "claude-sonnet-4", "claude-sonnet-4-5", "claude-3-5-haiku-20241022"] },
       { id: "gemini", label: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", endpoint: "/models/{model}:generateContent", format: "gemini", auth: "x-goog-api-key", models: ["gemini-2.5-pro", "gemini-2.5-flash"] },
       { id: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", endpoint: "/chat/completions", format: "openai", auth: "bearer", models: ["deepseek-chat", "deepseek-reasoner"] },
       { id: "groq", label: "Groq", baseUrl: "https://api.groq.com/openai/v1", endpoint: "/chat/completions", format: "openai", auth: "bearer", models: ["llama-3.3-70b-versatile"] },
@@ -324,6 +409,7 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     last_used_at: key.last_used_at,
     budget_usd: key.budget_usd ?? null,
     hard_cap_usd: key.hard_cap_usd ?? null,
+    session: Number(key.session) === 1 ? 1 : 0,
   });
 
   app.get("/api/keys", { preHandler: authenticate }, async (request, reply) => {
@@ -356,6 +442,7 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
       id: crypto.randomUUID(),
       user_id: authUser.user.id,
       name,
+      session: 0,
       key_hash: hashKey(plain),
       key_prefix: keyPrefix(plain),
       scope,
@@ -375,6 +462,48 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
       targetType: "api_key",
       targetId: record.id,
       detail: { name, permission, scope },
+      ip: clientIp(request),
+    });
+    return reply.code(201).send({ key: plain, record: publicKey(record) });
+  });
+
+  app.post("/api/keys/:id/rotate", { preHandler: authenticate }, async (request, reply) => {
+    const authUser = (request as unknown as { auth: AuthResult }).auth;
+    const { id } = request.params as { id: string };
+    const key = await repos.apiKeys.getById(id);
+    if (!key || key.user_id !== authUser.user.id) {
+      return reply.code(404).send({ error: "key_not_found" });
+    }
+    if (key.revoked_at) {
+      return reply.code(400).send({ error: "key_revoked" });
+    }
+    if (Number(key.session) === 1) {
+      return reply.code(400).send({ error: "cannot_rotate_session_key" });
+    }
+    if (authUser.keyRecord?.id === id) {
+      return reply.code(400).send({ error: "cannot_rotate_active_key" });
+    }
+    const plain = generateApiKey();
+    const now = new Date().toISOString();
+    const record: ApiKey = {
+      ...key,
+      id: crypto.randomUUID(),
+      key_hash: hashKey(plain),
+      key_prefix: keyPrefix(plain),
+      created_at: now,
+      last_used_at: null,
+      revoked_at: null,
+      session: 0,
+    };
+    await repos.apiKeys.create(record);
+    await repos.apiKeys.revoke(id);
+    recordAudit(repos, {
+      userId: authUser.user.id,
+      actor: authUser.keyRecord ? `api_key:${authUser.keyRecord.key_prefix}` : "session",
+      action: "api_key.rotate",
+      targetType: "api_key",
+      targetId: record.id,
+      detail: { name: record.name, rotated_from: id },
       ip: clientIp(request),
     });
     return reply.code(201).send({ key: plain, record: publicKey(record) });
@@ -1068,34 +1197,74 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const settings = await repos.alerts.getByUser(authUser.user.id);
     const since = monthStart();
-    const userSpend = await spendSince(repos, authUser.user.id, since);
-    const usage: CostUsageRow[] = [
-      { scope: "user", id: null, name: "Account (all projects)", spend: userSpend, budget_usd: settings.budget_usd, hard_cap_usd: settings.hard_cap_usd },
-    ];
-    const projects = await repos.projects.listByUser(authUser.user.id);
-    for (const project of projects) {
-      usage.push({
-        scope: "project",
-        id: project.id,
-        name: project.name,
-        spend: await spendSince(repos, authUser.user.id, since, "project", project.id),
-        budget_usd: project.budget_usd ?? null,
-        hard_cap_usd: project.hard_cap_usd ?? null,
-      });
-    }
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const accessible = await repos.projects.listAccessible(authUser.user.id);
     const keys = await repos.apiKeys.listByUser(authUser.user.id);
-    for (const key of keys) {
-      usage.push({
-        scope: "api_key",
-        id: key.id,
-        name: key.name,
-        spend: await spendSince(repos, authUser.user.id, since, "api_key", key.id),
-        budget_usd: key.budget_usd ?? null,
-        hard_cap_usd: key.hard_cap_usd ?? null,
-      });
+    const usage: CostUsageRow[] = [];
+    let selected: { id: string; name: string; budget_usd: number | null; hard_cap_usd: number | null } | null = null;
+    let selectedSpend = 0;
+    if (scope.projectId) {
+      const entry = accessible.find((item) => item.project.id === scope.projectId);
+      if (entry) {
+        selected = {
+          id: entry.project.id,
+          name: entry.project.name,
+          budget_usd: entry.project.budget_usd ?? null,
+          hard_cap_usd: entry.project.hard_cap_usd ?? null,
+        };
+        selectedSpend = await spendSince(repos, authUser.user.id, since, "project", entry.project.id);
+        usage.push({ scope: "project", id: selected.id, name: selected.name, spend: selectedSpend, budget_usd: selected.budget_usd, hard_cap_usd: selected.hard_cap_usd });
+        for (const key of keys) {
+          const keyProjects = parseProjectScope(key.projects);
+          if (keyProjects.length > 0 && !keyProjects.includes(selected.id)) {
+            continue;
+          }
+          usage.push({
+            scope: "api_key",
+            id: key.id,
+            name: key.name,
+            spend: await spendSince(repos, authUser.user.id, since, "api_key", key.id),
+            budget_usd: key.budget_usd ?? null,
+            hard_cap_usd: key.hard_cap_usd ?? null,
+          });
+        }
+      }
+    }
+    if (!selected) {
+      const userSpend = await spendSince(repos, authUser.user.id, since);
+      usage.push({ scope: "user", id: null, name: "Account (all projects)", spend: userSpend, budget_usd: settings.budget_usd, hard_cap_usd: settings.hard_cap_usd });
+      for (const entry of accessible) {
+        usage.push({
+          scope: "project",
+          id: entry.project.id,
+          name: entry.project.name,
+          spend: await spendSince(repos, authUser.user.id, since, "project", entry.project.id),
+          budget_usd: entry.project.budget_usd ?? null,
+          hard_cap_usd: entry.project.hard_cap_usd ?? null,
+        });
+      }
+      for (const key of keys) {
+        usage.push({
+          scope: "api_key",
+          id: key.id,
+          name: key.name,
+          spend: await spendSince(repos, authUser.user.id, since, "api_key", key.id),
+          budget_usd: key.budget_usd ?? null,
+          hard_cap_usd: key.hard_cap_usd ?? null,
+        });
+      }
     }
     const judgeSpend = await repos.judge.sumCostSince(authUser.user.id, since);
-    return reply.send({ settings, month: since.slice(0, 10), usage, judge_spend: judgeSpend });
+    return reply.send({
+      settings,
+      month: since.slice(0, 10),
+      usage,
+      judge_spend: judgeSpend,
+      projects: accessible.map((entry) => ({ id: entry.project.id, name: entry.project.name })),
+      selected,
+      selected_spend: selectedSpend,
+    });
   });
 
   app.put("/api/cost/settings", { preHandler: authenticate }, async (request, reply) => {
@@ -1399,14 +1568,68 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
   app.get("/api/dashboard", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const q = request.query as Record<string, string | undefined>;
-    const projectId = q.project && (await repos.projects.roleFor(authUser.user.id, q.project)) ? q.project : undefined;
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
     const stats = await repos.runs.dashboardStats(authUser.user.id, {
-      projectId,
+      projectId: scope.projectId,
       from: q.from,
       to: q.to,
     });
     const judgeCostUsd = await repos.judge.sumCostSince(authUser.user.id, monthStart());
-    return reply.send({ ...stats, judgeCostUsd });
+    const projectName = scope.projectId ? (await repos.projects.findById(scope.projectId))?.name ?? null : null;
+    return reply.send({ ...stats, judgeCostUsd, project_name: projectName });
+  });
+
+  app.get("/api/team", { preHandler: authenticate }, async (request, reply) => {
+    const authUser = (request as unknown as { auth: AuthResult }).auth;
+    const access = await repos.projects.listAccessible(authUser.user.id);
+    const isAdmin = authUser.user.is_admin === 1;
+    const users = isAdmin ? await repos.users.list() : [];
+    let adminProjects: Array<{
+      id: string;
+      name: string;
+      owner_email: string | null;
+      members: number;
+      runs: number;
+      spend: number;
+      budget_usd: number | null;
+      hard_cap_usd: number | null;
+    }> = [];
+    if (isAdmin) {
+      const [projects, members, spend] = await Promise.all([
+        repos.projects.listAll(),
+        repos.projects.memberCounts(),
+        repos.runs.spendByProjectSince(monthStart()),
+      ]);
+      const ownerEmail = new Map(users.map((user) => [user.id, user.email]));
+      const memberCount = new Map(members.map((entry) => [entry.projectId, entry.count]));
+      const spendByProject = new Map(spend.map((entry) => [entry.projectId, entry]));
+      adminProjects = projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        owner_email: ownerEmail.get(project.user_id) ?? null,
+        members: memberCount.get(project.id) ?? 0,
+        runs: spendByProject.get(project.id)?.runs ?? 0,
+        spend: spendByProject.get(project.id)?.spend ?? 0,
+        budget_usd: project.budget_usd ?? null,
+        hard_cap_usd: project.hard_cap_usd ?? null,
+      }));
+    }
+    return reply.send({
+      is_admin: isAdmin,
+      projects: access.map((entry) => ({ id: entry.project.id, name: entry.project.name, role: entry.role, created_at: entry.project.created_at })),
+      users: users.map((user) => ({ id: user.id, email: user.email, is_admin: user.is_admin, created_at: user.created_at })),
+      admin_projects: adminProjects,
+    });
+  });
+
+  app.get("/api/locked/:feature", { preHandler: authenticate }, async (request, reply) => {
+    const { feature } = request.params as { feature: string };
+    const info = lockedFeature(feature);
+    if (!info) {
+      return reply.code(404).send({ error: "feature_not_found" });
+    }
+    return reply.send({ feature: info });
   });
 
   app.get("/api/runs", { preHandler: authenticate }, async (request, reply) => {
@@ -1415,22 +1638,103 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     const page = Math.max(1, Number(q.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 25));
     const offset = (page - 1) * limit;
-    const projectId = q.project && (await repos.projects.roleFor(authUser.user.id, q.project)) ? q.project : undefined;
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const projectId = scope.projectId;
     const opts = runQueryOptions(q, limit, offset, config.editionConfig.fullTextSearch);
     opts.projectId = projectId;
+    const summary = await repos.runs.listSummary(authUser.user.id, opts);
+    const requestedGroup = q.group === "session" || q.group === "trace" || q.group === "none" ? q.group : null;
+    // With no explicit choice the list opens grouped when most matched runs sit
+    // in a trace with more than one run. The client still gets one click back to
+    // the flat list, and an explicit group param always wins.
+    const traffic =
+      requestedGroup !== "none"
+        ? await repos.runs.traceTraffic(authUser.user.id, opts)
+        : null;
+    const group =
+      requestedGroup ??
+      (traffic && traffic.total > 0 && traffic.multi / traffic.total > 0.5 ? "trace" : "none");
+    if (group !== "none") {
+      // Grouped mode pages by group (ten at a time) and carries the full
+      // aggregates, so a header summarizes every run in that group, not a page.
+      const groupLimit = 10;
+      let groupPage = Math.max(0, Number(q.gpage) || 0);
+      let grouped = await repos.runs.listGroupsFiltered(authUser.user.id, group, opts, groupLimit, groupPage * groupLimit);
+      // A filter can shrink the group count while the URL still points at a
+      // later page. Serve the last page instead of an empty list so a deep link
+      // or a stale tab never looks as if nothing matched.
+      if (groupPage > 0 && grouped.groups.length === 0 && grouped.total > 0) {
+        groupPage = Math.max(0, Math.ceil(grouped.total / groupLimit) - 1);
+        grouped = await repos.runs.listGroupsFiltered(authUser.user.id, group, opts, groupLimit, groupPage * groupLimit);
+      }
+      const runs = grouped.groups.length
+        ? await repos.runs.listByGroupIds(authUser.user.id, group, grouped.groups.map((entry) => entry.id), opts, 600)
+        : [];
+      const [eventCounts, firstTools, groups] = await Promise.all([
+        repos.events.countByRunIds(runs.map((run) => run.id)),
+        repos.events.listFirstToolEvents(runs.map((run) => run.id)),
+        attachTraceScores(repos, authUser.user.id, group, grouped.groups),
+      ]);
+      return reply.send({
+        runs,
+        total: grouped.total,
+        run_total: traffic?.total ?? grouped.total,
+        page,
+        limit,
+        summary,
+        eventCounts,
+        firstTools,
+        group,
+        groups,
+        group_total: grouped.total,
+        group_page: groupPage,
+        group_limit: groupLimit,
+      });
+    }
     const { runs, total } = await repos.runs.list(authUser.user.id, opts);
-    return reply.send({ runs, total, page, limit });
+    const [eventCounts, firstTools] = await Promise.all([
+      repos.events.countByRunIds(runs.map((run) => run.id)),
+      repos.events.listFirstToolEvents(runs.map((run) => run.id)),
+    ]);
+    return reply.send({ runs, total, run_total: total, page, limit, summary, eventCounts, firstTools, group: "none" });
   });
 
   app.post("/api/runs/bulk", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
-    const body = (request.body ?? {}) as { action?: string; ids?: unknown; score?: unknown; note?: unknown };
-    const ids = Array.isArray(body.ids) ? body.ids.map(String).filter(Boolean) : [];
-    if (!ids.length) {
+    const body = (request.body ?? {}) as { action?: string; ids?: unknown; trace_ids?: unknown; session_ids?: unknown; filter?: Record<string, string>; expected_count?: unknown; rejudge?: unknown; score?: unknown; note?: unknown; granularity?: string; kind?: string };
+    let ids = Array.isArray(body.ids) ? body.ids.map(String).filter(Boolean) : [];
+    const traceIds = Array.isArray(body.trace_ids) ? [...new Set(body.trace_ids.map(String).filter(Boolean))] : [];
+    if (!traceIds.length && body.filter && body.granularity === "trace" && body.action !== "judge") {
+      const opts = runQueryOptions(body.filter, 200, 0, config.editionConfig.fullTextSearch);
+      opts.projectId = body.filter.project || undefined;
+      traceIds.push(...(await repos.runs.listGroupsFiltered(authUser.user.id, "trace", opts, 200, 0)).groups.map((group) => group.id));
+    }
+    if (!ids.length && body.filter && body.action !== "judge") {
+      const opts = runQueryOptions(body.filter, 500, 0, config.editionConfig.fullTextSearch);
+      opts.projectId = body.filter.project || undefined;
+      ids = (await repos.runs.list(authUser.user.id, opts)).runs.map((run) => run.id);
+    }
+    const hasSessionIds = Array.isArray(body.session_ids) && body.session_ids.length > 0;
+    if (!ids.length && !traceIds.length && !hasSessionIds && !(body.action === "judge" && body.filter)) {
       return reply.code(400).send({ error: "no_ids" });
     }
     if (ids.length > 500) {
       return reply.code(400).send({ error: "too_many_ids", max: 500 });
+    }
+    if (body.action === "score" && traceIds.length) {
+      let score: number | null;
+      if (body.score === "good" || body.score === 1 || body.score === "1") score = 1;
+      else if (body.score === "bad" || body.score === 0 || body.score === "0") score = 0;
+      else if (body.score === "unscored" || body.score === null) score = null;
+      else return reply.code(400).send({ error: "invalid_score" });
+      const note = typeof body.note === "string" ? body.note.slice(0, 2000) : null;
+      let updated = 0;
+      for (const traceId of traceIds) {
+        if (await scoreTraceRecord(repos, authUser.user.id, traceId, score, note)) updated += 1;
+      }
+      recordAudit(repos, { userId: authUser.user.id, actor: "session", action: "trace.bulk_score", targetType: "trace", targetId: null, detail: { requested: traceIds.length, updated, score }, ip: clientIp(request) });
+      return reply.send({ ok: true, updated });
     }
     if (body.action === "delete") {
       const deleted = await repos.runs.deleteMany(authUser.user.id, ids);
@@ -1479,34 +1783,176 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
       if (!judgeSettings || !judgeSettings.model || !judgeSettings.api_key) {
         return reply.code(400).send({ error: "judge_not_configured" });
       }
-      const capped = ids.slice(0, 50);
+      const runMode = body.kind === "run" || (!traceIds.length && !hasSessionIds && !body.filter && ids.length > 0);
+      if (runMode) {
+        if (!ids.length && body.filter) {
+          const opts = runQueryOptions(body.filter, 500, 0, config.editionConfig.fullTextSearch);
+          opts.projectId = body.filter.project || undefined;
+          ids = (await repos.runs.list(authUser.user.id, opts)).runs.map((run) => run.id);
+        }
+        if (!ids.length) return reply.code(400).send({ error: "no_ids" });
+        if (ids.length > 500) return reply.code(400).send({ error: "too_many_ids", max: 500 });
+        const runningRunJob = [...judgeJobs.values()].find((entry) => entry.userId === authUser.user.id && (entry.status === "queued" || entry.status === "running"));
+        if (runningRunJob) return reply.code(409).send({ error: "judge_job_running", job_id: runningRunJob.id });
+        const runJob: JudgeJobState = {
+          id: crypto.randomUUID(), userId: authUser.user.id, kind: "run", traceIds: [], runIds: ids.slice(0, 500), total: Math.min(ids.length, 500),
+          completed: 0, good: 0, bad: 0, failed: 0, status: "queued", stopped: false, errors: [], createdAt: new Date().toISOString(),
+        };
+        judgeJobs.set(runJob.id, runJob);
+        void (async () => {
+          runJob.status = "running";
+          for (const runId of runJob.runIds ?? []) {
+            if (runJob.stopped) break;
+            const run = await repos.runs.getById(runId, authUser.user.id);
+            if (!run) { runJob.failed += 1; runJob.errors.push({ trace_id: runId, error: "run_not_found" }); continue; }
+            let ok = false; let lastError = "judge_unavailable";
+            for (let attempt = 0; attempt < 3 && !runJob.stopped; attempt += 1) {
+              try { ok = await assist.judgeRun(authUser.user.id, run, { apply: true }); if (ok) break; }
+              catch (err) { lastError = (err as Error).message.slice(0, 240); }
+              if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+            }
+            if (ok) runJob.good += 1; else { runJob.failed += 1; runJob.errors.push({ trace_id: runId, error: lastError }); }
+            runJob.completed += 1;
+          }
+          runJob.status = runJob.stopped ? "stopped" : "done";
+          recordAudit(repos, {
+            userId: authUser.user.id, actor: "session", action: "run.bulk_judge",
+            targetType: "run", targetId: runJob.id,
+            detail: { queued: runJob.total, completed: runJob.completed, good: runJob.good, failed: runJob.failed, stopped: runJob.stopped },
+            ip: clientIp(request),
+          });
+        })();
+        return reply.code(202).send({ job_id: runJob.id, kind: "run", queued: runJob.total, skipped: 0, skipped_reason: null });
+      }
+      let requestedTraces = traceIds;
+      if (!requestedTraces.length && Array.isArray(body.session_ids)) {
+        const sessionIds = body.session_ids.map(String).filter(Boolean);
+        if (sessionIds.length) {
+          const sessionRuns = await repos.runs.listByGroupIds(authUser.user.id, "session", sessionIds, {}, 10_000);
+          requestedTraces = [...new Set(sessionRuns.flatMap((run) => run.trace_id ? [run.trace_id] : []))];
+        }
+      }
+      if (!requestedTraces.length && body.filter) {
+        const opts = runQueryOptions(body.filter, 200, 0, config.editionConfig.fullTextSearch);
+        opts.projectId = body.filter.project || undefined;
+        requestedTraces = (await repos.runs.listGroupsFiltered(authUser.user.id, "trace", opts, 200, 0)).groups.map((group) => group.id);
+      }
+      if (!requestedTraces.length && ids.length) {
+        const runs = await Promise.all(ids.slice(0, 500).map((id) => repos.runs.getById(id, authUser.user.id)));
+        requestedTraces = [...new Set(runs.flatMap((run) => run?.trace_id ? [run.trace_id] : []))];
+      }
+      if (!requestedTraces.length) {
+        return reply.code(400).send({ error: "no_traces" });
+      }
+      if (requestedTraces.length > 200) {
+        return reply.code(400).send({ error: "too_many_traces", max: 200 });
+      }
+      const running = [...judgeJobs.values()].find((entry) => entry.userId === authUser.user.id && (entry.status === "queued" || entry.status === "running"));
+      if (running) {
+        return reply.code(409).send({ error: "judge_job_running", job_id: running.id });
+      }
+      const rejudge = body.rejudge === true || body.rejudge === "1";
+      const skipped: string[] = [];
+      const queued: string[] = [];
+      for (const traceId of requestedTraces) {
+        if (!rejudge && await repos.judge.getTraceJudgment(authUser.user.id, traceId)) skipped.push(traceId);
+        else queued.push(traceId);
+      }
+      const job: JudgeJobState = {
+        id: crypto.randomUUID(), userId: authUser.user.id, kind: "trace", traceIds: queued, total: queued.length,
+        completed: 0, good: 0, bad: 0, failed: 0, status: "queued", stopped: false, errors: [],
+        createdAt: new Date().toISOString(),
+      };
+      judgeJobs.set(job.id, job);
       recordAudit(repos, {
-        userId: authUser.user.id,
-        actor: "session",
-        action: "run.bulk_judge",
-        targetType: "run",
-        targetId: null,
-        detail: { queued: capped.length },
-        ip: clientIp(request),
+        userId: authUser.user.id, actor: "session", action: "trace.bulk_judge",
+        targetType: "trace", targetId: null, detail: { queued: queued.length, skipped: skipped.length }, ip: clientIp(request),
       });
       void (async () => {
-        for (const runId of capped) {
-          try {
-            const run = await repos.runs.getById(runId, authUser.user.id);
-            if (!run) {
-              continue;
+        job.status = "running";
+        for (const traceId of job.traceIds) {
+          if (job.stopped) break;
+          let lastError = "judge_unavailable";
+          let judgment: { score: number | null; error: string | null } | null = null;
+          for (let attempt = 0; attempt < 3 && !job.stopped; attempt += 1) {
+            try {
+              judgment = await assist.judgeTrace(authUser.user.id, traceId, { apply: true });
+              if (judgment && !judgment.error) break;
+              lastError = judgment?.error ?? "judge_unavailable";
+            } catch (err) {
+              lastError = (err as Error).message.slice(0, 240);
             }
-            if (!(await assist.judgeRun(authUser.user.id, run, { apply: true }))) {
-              break;
-            }
-          } catch (err) {
-            console.error("bulk judge failed", err);
+            if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
           }
+          if (job.stopped) break;
+          if (judgment && !judgment.error && judgment.score != null) {
+            if (judgment.score === 1) job.good += 1; else job.bad += 1;
+          } else {
+            job.failed += 1;
+            job.errors.push({ trace_id: traceId, error: lastError });
+          }
+          job.completed += 1;
         }
+        job.status = job.stopped ? "stopped" : "done";
+        recordAudit(repos, {
+          userId: authUser.user.id, actor: "session", action: "trace.judge_job",
+          targetType: "trace", targetId: job.id,
+          detail: { queued: job.total, completed: job.completed, good: job.good, bad: job.bad, failed: job.failed, stopped: job.stopped },
+          ip: clientIp(request),
+        });
       })();
-      return reply.code(202).send({ ok: true, queued: capped.length });
+      return reply.code(202).send({ job_id: job.id, kind: "trace", queued: queued.length, skipped: skipped.length, skipped_reason: skipped.length ? "already_judged" : null });
     }
     return reply.code(400).send({ error: "unknown_action" });
+  });
+
+  app.get("/api/runs/judge/:jobId", { preHandler: authenticate }, async (request, reply) => {
+    const authUser = (request as unknown as { auth: AuthResult }).auth;
+    const { jobId } = request.params as { jobId: string };
+    const job = judgeJobs.get(jobId);
+    if (!job || job.userId !== authUser.user.id) return reply.code(404).send({ error: "job_not_found" });
+    return reply.send({ job });
+  });
+
+  app.post("/api/runs/judge/:jobId/stop", { preHandler: authenticate }, async (request, reply) => {
+    const authUser = (request as unknown as { auth: AuthResult }).auth;
+    const { jobId } = request.params as { jobId: string };
+    const job = judgeJobs.get(jobId);
+    if (!job || job.userId !== authUser.user.id) return reply.code(404).send({ error: "job_not_found" });
+    job.stopped = true;
+    return reply.send({ ok: true, job });
+  });
+
+  app.post("/api/runs/bulk/judge-preview", { preHandler: authenticate }, async (request, reply) => {
+    const authUser = (request as unknown as { auth: AuthResult }).auth;
+    if (!deps.host.featureAllowed("judge")) return reply.code(402).send({ error: "license_required", feature: "judge", edition: "pro" });
+    const body = (request.body ?? {}) as { trace_ids?: unknown; session_ids?: unknown; ids?: unknown; filter?: Record<string, string>; kind?: string };
+    if (body.kind === "run") {
+      let runIds = Array.isArray(body.ids) ? [...new Set(body.ids.map(String).filter(Boolean))] : [];
+      if (!runIds.length && body.filter) {
+        const opts = runQueryOptions(body.filter, 500, 0, config.editionConfig.fullTextSearch);
+        opts.projectId = body.filter.project || undefined;
+        runIds = (await repos.runs.list(authUser.user.id, opts)).runs.map((run) => run.id);
+      }
+      return reply.send({ kind: "run", runs: runIds.length, traces: 0, queued: runIds.length, skipped: 0, tokens_per_run: 1_200, estimated_usd: Number((runIds.length * 0.0018).toFixed(4)) });
+    }
+    let traces = Array.isArray(body.trace_ids) ? [...new Set(body.trace_ids.map(String).filter(Boolean))] : [];
+    if (!traces.length && Array.isArray(body.session_ids)) {
+      const sessionRuns = await repos.runs.listByGroupIds(authUser.user.id, "session", body.session_ids.map(String).filter(Boolean), {}, 10_000);
+      traces = [...new Set(sessionRuns.flatMap((run) => run.trace_id ? [run.trace_id] : []))];
+    }
+    if (!traces.length && Array.isArray(body.ids)) {
+      const runs = await Promise.all(body.ids.map(String).filter(Boolean).slice(0, 500).map((id) => repos.runs.getById(id, authUser.user.id)));
+      traces = [...new Set(runs.flatMap((run) => run?.trace_id ? [run.trace_id] : []))];
+    }
+    if (!traces.length && body.filter) {
+      const opts = runQueryOptions(body.filter, 200, 0, config.editionConfig.fullTextSearch);
+      opts.projectId = body.filter.project || undefined;
+      traces = (await repos.runs.listGroupsFiltered(authUser.user.id, "trace", opts, 200, 0)).groups.map((group) => group.id);
+    }
+    const skipped = (await Promise.all(traces.map((traceId) => repos.judge.getTraceJudgment(authUser.user.id, traceId)))).filter(Boolean).length;
+    const queued = traces.length - skipped;
+    return reply.send({ kind: "trace", traces: traces.length, queued, skipped, tokens_per_trace: 3_100, estimated_usd: Number((queued * 0.0048).toFixed(4)) });
   });
 
   app.get("/api/runs/export", { preHandler: authenticate }, async (request, reply) => {
@@ -1515,7 +1961,9 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     const format = q.format === "ndjson" || q.format === "jsonl" || q.format === "slm" ? q.format : "csv";
     const limit = Math.min(2000, Math.max(1, Number(q.limit) || 1000));
     const opts = runQueryOptions(q, limit, 0, config.editionConfig.fullTextSearch);
-    opts.projectId = q.project && (await repos.projects.roleFor(authUser.user.id, q.project)) ? q.project : undefined;
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    opts.projectId = scope.projectId;
     const { runs } = await repos.runs.list(authUser.user.id, opts);
     if (!runs.length) {
       return reply.code(400).send({ error: "no_runs" });
@@ -1753,7 +2201,9 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const q = request.query as Record<string, string | undefined>;
     const days = clampDays(q.days);
-    const projectId = q.project && (await repos.projects.roleFor(authUser.user.id, q.project)) ? q.project : undefined;
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const projectId = scope.projectId;
     const rows = await repos.runs.analyticsByModel(authUser.user.id, { days, projectId });
     return reply.send({
       window_days: days,
@@ -1769,7 +2219,9 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const q = request.query as Record<string, string | undefined>;
     const days = clampDays(q.days);
-    const projectId = q.project && (await repos.projects.roleFor(authUser.user.id, q.project)) ? q.project : undefined;
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const projectId = scope.projectId;
     const rows = await repos.runs.analyticsByAgent(authUser.user.id, { days, projectId });
     return reply.send({ window_days: days, agents: rows });
   });
@@ -1778,7 +2230,9 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const q = request.query as Record<string, string | undefined>;
     const days = clampDays(q.days);
-    const projectId = q.project && (await repos.projects.roleFor(authUser.user.id, q.project)) ? q.project : undefined;
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const projectId = scope.projectId;
     const rows = await repos.runs.analyticsByEndUser(authUser.user.id, { days, projectId });
     return reply.send({ window_days: days, end_users: rows });
   });
@@ -1787,7 +2241,9 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const q = request.query as Record<string, string | undefined>;
     const days = clampDays(q.days);
-    const projectId = q.project && (await repos.projects.roleFor(authUser.user.id, q.project)) ? q.project : undefined;
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const projectId = scope.projectId;
     const rows = await repos.runs.analyticsByTool(authUser.user.id, { days, projectId });
     return reply.send({ window_days: days, tools: rows });
   });
@@ -1796,7 +2252,9 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const q = request.query as Record<string, string | undefined>;
     const days = clampDays(q.days);
-    const projectId = q.project && (await repos.projects.roleFor(authUser.user.id, q.project)) ? q.project : undefined;
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const projectId = scope.projectId;
     const rows = await repos.runs.analyticsByProject(authUser.user.id, { days, projectId });
     return reply.send({ window_days: days, projects: rows });
   });
@@ -1923,6 +2381,49 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     return reply.send(report);
   });
 
+  app.get("/api/traces", { preHandler: authenticate }, async (request, reply) => {
+    const authUser = (request as unknown as { auth: AuthResult }).auth;
+    const scope = await resolveProjectScope(request, repos, authUser.user.id);
+    applyProjectScope(reply, scope);
+    const q = request.query as Record<string, string | undefined>;
+    // Traces filter on the same run fields as Runs; the legacy `errors=1`
+    // shortcut still means "failed runs only".
+    const filters: RunListFilters = runQueryOptions(q, 50, 0, false);
+    filters.projectId = scope.projectId;
+    if (!filters.status && (q.errors === "1" || q.errors === "true")) {
+      filters.status = "error";
+    }
+    if (q.multi === "1") {
+      filters.minRuns = 2;
+    }
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 50));
+    const sessionPage = Math.max(1, Number(q.spage) || 1);
+    const tracePage = Math.max(1, Number(q.tpage) || 1);
+    const [sessions, traces] = await Promise.all([
+      repos.runs.listGroupsFiltered(authUser.user.id, "session", filters, limit, (sessionPage - 1) * limit),
+      repos.runs.listGroupsFiltered(authUser.user.id, "trace", filters, limit, (tracePage - 1) * limit),
+    ]);
+    const [scoredSessions, scoredTraces] = await Promise.all([
+      attachTraceScores(repos, authUser.user.id, "session", sessions.groups),
+      attachTraceScores(repos, authUser.user.id, "trace", traces.groups),
+    ]);
+    const [sessionRoots, traceRoots] = await Promise.all([
+      repos.runs.listGroupRoots(authUser.user.id, "session", sessions.groups.map((group) => group.id), scope.projectId),
+      repos.runs.listGroupRoots(authUser.user.id, "trace", traces.groups.map((group) => group.id), scope.projectId),
+    ]);
+    const roots: Record<string, { agentName: string | null; requestBody: string | null }> = {};
+    for (const root of [...sessionRoots, ...traceRoots]) {
+      roots[root.groupId] = { agentName: root.agentName ?? null, requestBody: root.requestBody ?? null };
+    }
+    return reply.send({
+      sessions: scoredSessions,
+      traces: scoredTraces,
+      roots,
+      totals: { sessions: sessions.total, traces: traces.total },
+      paging: { limit, sessions: { page: sessionPage }, traces: { page: tracePage } },
+    });
+  });
+
   app.get("/api/runs/group/:kind/:id", { preHandler: authenticate }, async (request, reply) => {
     const authUser = (request as unknown as { auth: AuthResult }).auth;
     const { kind, id } = request.params as { kind: string; id: string };
@@ -1930,18 +2431,51 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
       return reply.code(400).send({ error: "invalid_group_kind" });
     }
     const q = request.query as Record<string, string | undefined>;
-    const limit = Math.min(200, Math.max(1, Number(q.limit) || 100));
+    // A trace can carry a whole agent tree. The trace rail virtualises rows,
+    // so one page may hold the full 1,000-run graph; sessions stay at 200 in the client.
+    const limit = Math.min(1000, Math.max(1, Number(q.limit) || 100));
     const offset = Math.max(0, Number(q.offset) || 0);
     const { runs, total } = await repos.runs.listGroup(authUser.user.id, { kind, id, limit, offset });
-    if (kind === "trace" && q.include === "authorization") {
-      const authorization = await deps.host.traceAnnotations({
-        userId: authUser.user.id,
-        traceId: id,
-        runIds: runs.map((run) => run.id),
-      });
-      return reply.send({ kind, id, runs, total, limit, offset, authorization });
+    let allRuns = runs;
+    if (q.descendants !== "0") {
+      const descendants = await collectDescendantRuns(repos, authUser.user.id, runs, runs.length + 200);
+      allRuns = [...runs, ...descendants];
     }
-    return reply.send({ kind, id, runs, total, limit, offset });
+    const [eventCounts, firstTools, lastAnswers, toolNames, totals] = await Promise.all([
+      repos.events.countByRunIds(allRuns.map((run) => run.id)),
+      repos.events.listFirstToolEvents(allRuns.map((run) => run.id)),
+      repos.events.listLastResponseEvents(allRuns.map((run) => run.id)),
+      repos.events.listToolNamesByRunIds(allRuns.map((run) => run.id)),
+      repos.runs.groupTotals(authUser.user.id, kind, id),
+    ]);
+    let traceScore: number | null = null;
+    let traceScoreReason: string | null = null;
+    let firstFailingRunId: string | null = null;
+    let sessionScore: number | null = null;
+    let sessionJudged = 0;
+    let sessionGood = 0;
+    if (kind === "trace") {
+      const judgment = await repos.judge.getTraceJudgment(authUser.user.id, id);
+      traceScore = judgment?.score ?? null;
+      traceScoreReason = judgment?.reason ?? null;
+      firstFailingRunId = judgment?.first_failing_run_id ?? null;
+    } else {
+      const sessionRuns = await repos.runs.listByGroupIds(authUser.user.id, "session", [id], {}, 10_000);
+      const traceIds = [...new Set(sessionRuns.map((run) => run.trace_id).filter((value): value is string => Boolean(value)))];
+      const judgments = await repos.judge.listTraceJudgments(authUser.user.id, traceIds);
+      sessionJudged = judgments.length;
+      sessionGood = judgments.filter((judgment) => judgment.score === 1).length;
+      sessionScore = sessionJudged ? sessionGood / sessionJudged : null;
+    }
+    const authorization =
+      kind === "trace" && q.include === "authorization"
+        ? await deps.host.traceAnnotations({
+            userId: authUser.user.id,
+            traceId: id,
+            runIds: allRuns.map((run) => run.id),
+          })
+        : undefined;
+    return reply.send({ kind, id, runs: allRuns, total, limit, offset, eventCounts, firstTools, lastAnswers, toolNames, totals, trace_score: traceScore, trace_score_reason: traceScoreReason, first_failing_run_id: firstFailingRunId, session_score: sessionScore, session_judged: sessionJudged, session_good: sessionGood, ...(authorization ? { authorization } : {}) });
   });
 
   app.patch("/api/runs/:id", { preHandler: authenticate }, async (request, reply) => {
@@ -2122,8 +2656,11 @@ export async function apiRoute(app: FastifyInstance, deps: ApiDeps): Promise<voi
     if (!run) {
       return reply.code(404).send({ error: "run_not_found" });
     }
-    const judgments = await repos.judge.listJudgments(run.id);
-    return reply.send({ ...run, judgments });
+    const [judgments, children] = await Promise.all([
+      repos.judge.listJudgments(run.id),
+      repos.runs.listByParents(authUser.user.id, [run.id], 50),
+    ]);
+    return reply.send({ ...run, judgments, children });
   });
 
   app.get("/api/runs/:id/events", { preHandler: authenticate }, async (request, reply) => {

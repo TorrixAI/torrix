@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { bearer, createTestApp, seedSession } from "./helpers";
+import { bearer, createTestApp, expectSpaShell, seedSession } from "./helpers";
 
 async function seedProject(ctx: Awaited<ReturnType<typeof createTestApp>>, userId: string): Promise<void> {
   await ctx.repos.projects.create({
@@ -107,35 +107,41 @@ test("ingest persists reasoning and tool calls, and the session tree renders the
 
     const observedPage = await ctx.app.inject({ method: "GET", url: "/ui/agents/observed", headers: bearer(session.key) });
     expect(observedPage.statusCode).toBe(200);
-    expect(observedPage.body).toContain("Observed agents");
-    expect(observedPage.body).toContain("build");
+    expectSpaShell(observedPage.body);
 
-    const agentRuns = await ctx.app.inject({ method: "GET", url: "/ui/runs?agent=build", headers: bearer(session.key) });
+    const agentRuns = await ctx.app.inject({ method: "GET", url: "/api/runs?agent=build", headers: bearer(session.key) });
     expect(agentRuns.statusCode).toBe(200);
     expect(agentRuns.body).toContain("do the refactor");
     expect(agentRuns.body).not.toContain("plan the refactor");
 
     const page = await ctx.app.inject({ method: "GET", url: "/ui/sessions/ses_root", headers: bearer(session.key) });
     expect(page.statusCode).toBe(200);
-    expect(page.body).toContain("tree-cell");
-    expect(page.body).toContain("tree-guides");
-    expect(page.body).toContain("agent-chip");
-    expect(page.body).toContain("run-tree");
+    expectSpaShell(page.body);
+    const group = await ctx.app.inject({ method: "GET", url: "/api/runs/group/session/ses_root", headers: bearer(session.key) });
+    expect(group.statusCode).toBe(200);
+    expect((group.json() as { runs: Array<{ id: string }> }).runs.map((r) => r.id)).toEqual(expect.arrayContaining([parent.id]));
 
     const parentPage = await ctx.app.inject({ method: "GET", url: `/ui/runs/${parent.id}`, headers: bearer(session.key) });
     expect(parentPage.statusCode).toBe(200);
-    expect(parentPage.body).toContain("Reasoning");
-    expect(parentPage.body).toContain("Tool calls");
-    expect(parentPage.body).toContain("Subagent runs");
-    expect(parentPage.body).toContain("task");
+    expectSpaShell(parentPage.body);
+    const parentApi = await ctx.app.inject({ method: "GET", url: `/api/runs/${parent.id}`, headers: bearer(session.key) });
+    expect(parentApi.statusCode).toBe(200);
+    const parentBody = parentApi.json() as { children: Array<{ id: string; agent_name: string | null }> };
+    expect(parentBody.children.map((c) => c.id)).toContain(children[0].id);
+    expect(parentBody.children[0].agent_name).toBe("build");
+    const parentEvents = await ctx.app.inject({ method: "GET", url: `/api/runs/${parent.id}/events`, headers: bearer(session.key) });
+    expect(parentEvents.statusCode).toBe(200);
+    expect(parentEvents.body).toContain("task");
 
     const childPage = await ctx.app.inject({ method: "GET", url: `/ui/runs/${children[0].id}`, headers: bearer(session.key) });
     expect(childPage.statusCode).toBe(200);
-    expect(childPage.body).toContain("Parent run");
+    expectSpaShell(childPage.body);
+    const childApi = await ctx.app.inject({ method: "GET", url: `/api/runs/${children[0].id}`, headers: bearer(session.key) });
+    expect((childApi.json() as { parent_run_id: string | null }).parent_run_id).toBe(parent.id);
 
     const index = await ctx.app.inject({ method: "GET", url: "/ui/traces", headers: bearer(session.key) });
     expect(index.statusCode).toBe(200);
-    expect(index.body).toContain("ses_root");
+    expectSpaShell(index.body);
   } finally {
     await ctx.cleanup();
   }

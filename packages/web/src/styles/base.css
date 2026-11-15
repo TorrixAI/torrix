@@ -1,0 +1,50 @@
+/* Element-level reset, typography and focus. */
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scrollbar-color:var(--scroll) transparent}
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:var(--scroll);border:3px solid transparent;background-clip:content-box;border-radius:99px}
+*::-webkit-scrollbar-thumb:hover{background:var(--scroll-hover);border:3px solid transparent;background-clip:content-box}
+body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.55 var(--sans);letter-spacing:-.006em;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  font-variant-numeric:tabular-nums}
+body::before{content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background-image:radial-gradient(circle,var(--grid-dot) 0.75px,transparent 0.75px);
+  background-size:16px 16px}
+body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background-image:radial-gradient(circle,var(--grid-dot-hot) 1px,transparent 1px);
+  background-size:16px 16px;
+  -webkit-mask-image:radial-gradient(220px 220px at var(--mx) var(--my),rgba(0,0,0,.7) 0%,rgba(0,0,0,.22) 45%,transparent 80%);
+  mask-image:radial-gradient(220px 220px at var(--mx) var(--my),rgba(0,0,0,.7) 0%,rgba(0,0,0,.22) 45%,transparent 80%)}
+a{color:var(--link);text-decoration:none}
+button{font:inherit;cursor:pointer}
+svg{display:block}
+code{font-family:var(--sans);font-size:11px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:.06em .4em;color:var(--text)}
+.mono{font-family:var(--sans)}
+.tnum{font-feature-settings:"tnum" 1}
+body[data-page]{--page-accent:var(--ink);--page-accent-dim:color-mix(in srgb,var(--ink) 8%,transparent);--page-accent-line:var(--line)}
+@media(prefers-reduced-motion:reduce){
+*{animation:none!important;transition:none!important}
+}
+code{font-family:var(--mono)}
+pre{font-family:var(--mono)}
+.mono{font-family:var(--mono)}
+body{font:13px/1.55 var(--sans);background:var(--bg);letter-spacing:-.004em}
+body::before{display:none!important}
+body::after{display:none!important}
+::selection{background:var(--selection);color:var(--text)}
+a{color:var(--link)}
+a:hover{color:var(--brand-text);text-decoration:underline;text-underline-offset:2px}
+:focus-visible{outline:2px solid var(--focus-outline);outline-offset:2px;box-shadow:0 0 0 5px var(--focus-halo)!important}
+h1{font-family:var(--sans);color:var(--heading);letter-spacing:-.018em}
+h2{font-family:var(--sans);color:var(--heading);letter-spacing:-.018em}
+h3{font-family:var(--sans);color:var(--heading);letter-spacing:-.018em}
+h4{font-family:var(--sans);color:var(--heading);letter-spacing:-.018em}
+a.bg-surface{background:var(--surface)!important;border:1px solid var(--line-2)!important;border-radius:var(--r)!important;color:var(--text)!important;font-family:var(--sans)!important;font-size:12px!important;font-weight:600!important;letter-spacing:0!important;padding:7px 12px!important}
+a.bg-surface:hover{background:var(--surface-2)!important;border-color:var(--line-2)!important;color:var(--text)!important}
+a.bg-primary{background:var(--brand-fill)!important;border-color:var(--brand-fill)!important;color:var(--on-brand)!important}
+a.bg-primary:hover{background:var(--brand-hover)!important;border-color:var(--brand-hover)!important;color:var(--on-brand)!important}
+:focus-visible{outline-color:var(--focus-outline)}
+html{scrollbar-gutter:stable}
+a{color:var(--text)}
+a:hover{color:var(--text);text-decoration:underline;text-underline-offset:2px}

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { bearer, createTestApp } from "./helpers";
+import { bearer, createTestApp, expectSpaShell } from "./helpers";
 
 const credentials = (email: string) => ({ email, password: "a-long-password" });
 
@@ -47,14 +47,15 @@ test("an administrator can still add people, and open sign-up can be turned on",
 test("the login page hides account creation once an account exists", async () => {
   const ctx = await createTestApp({ TORRIX_ALLOW_SIGNUP: "false" });
   try {
-    const before = await ctx.app.inject({ method: "GET", url: "/ui/login" });
-    expect(before.body).not.toContain('id="tabSignup" style="display:none"');
-    expect(before.body).not.toContain("created by an administrator");
+    // The SPA login page reads /auth/signup-status and drops the Create account tab.
+    const before = await ctx.app.inject({ method: "GET", url: "/auth/signup-status" });
+    expect((before.json() as { open: boolean }).open).toBe(true);
 
     await ctx.app.inject({ method: "POST", url: "/auth/signup", payload: credentials("admin@example.org") });
-    const after = await ctx.app.inject({ method: "GET", url: "/ui/login" });
-    expect(after.body).toContain('id="tabSignup" style="display:none"');
-    expect(after.body).toContain("New accounts are created by an administrator.");
+    const after = await ctx.app.inject({ method: "GET", url: "/auth/signup-status" });
+    expect((after.json() as { open: boolean }).open).toBe(false);
+    const page = await ctx.app.inject({ method: "GET", url: "/ui/login" });
+    expectSpaShell(page.body);
   } finally {
     await ctx.cleanup();
   }

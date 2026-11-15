@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "bun",
+      "request": "launch",
+      "name": "Torrix: debug server",
+      "program": "${workspaceFolder}/packages/server/src/index.ts",
+      "cwd": "${workspaceFolder}/packages/server",
+      "env": {
+        "TORRIX_OPEN_BROWSER": "false"
+      }
+    }
+  ]
+}

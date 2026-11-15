@@ -1,0 +1,10 @@
+/* Traces page rules (pre-utilities). */
+@media(width <= 1100px){
+.traces-table{table-layout:auto!important}
+.traces-table th:nth-child(3){display:none}
+.traces-table td:nth-child(3){display:none}
+.traces-table th:nth-child(4){display:none}
+.traces-table td:nth-child(4){display:none}
+.traces-table th{padding-left:8px!important;padding-right:8px!important}
+.traces-table td{padding-left:8px!important;padding-right:8px!important}
+}

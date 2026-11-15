@@ -1,6 +1,6 @@
 import type { DbClient } from "../db/client";
 import { insertRow, sqlAll, sqlGet, sqlRun, updateById } from "../db/sql";
-import type { AgentRepository } from "../core/ports";
+import type { AgentActivity, AgentRepository } from "../core/ports";
 import type { Agent, AgentCredential, AgentTool } from "../core/domain";
 
 export function createAgentRepository(db: DbClient): AgentRepository {
@@ -28,6 +28,60 @@ export function createAgentRepository(db: DbClient): AgentRepository {
         [userId, new Date().toISOString()],
       );
       return Number(row?.c ?? 0);
+    },
+
+    async activitySummary(userId: string, since: string): Promise<AgentActivity[]> {
+      const [decisions, runs, approvals] = await Promise.all([
+        sqlAll<{ agentId: string; lastAt: string | null; actions: number; denied: number }>(
+          db.engine,
+          `SELECT agent_id AS "agentId", MAX(created_at) AS "lastAt", COUNT(*) AS actions,
+                  COALESCE(SUM(CASE WHEN decision = 'deny' THEN 1 ELSE 0 END), 0) AS denied
+           FROM authorization_decisions WHERE user_id = ? AND created_at >= ?
+           GROUP BY agent_id`,
+          [userId, since],
+        ),
+        sqlAll<{ agentId: string; lastAt: string | null }>(
+          db.engine,
+          `SELECT agent_id AS "agentId", MAX(created_at) AS "lastAt"
+           FROM runs WHERE user_id = ? AND agent_id IS NOT NULL
+           GROUP BY agent_id`,
+          [userId],
+        ),
+        sqlAll<{ agentId: string; pending: number }>(
+          db.engine,
+          `SELECT agent_id AS "agentId", COUNT(*) AS pending
+           FROM approvals WHERE user_id = ? AND state = 'pending'
+           GROUP BY agent_id`,
+          [userId],
+        ),
+      ]);
+      const map = new Map<string, AgentActivity>();
+      const ensure = (agentId: string): AgentActivity => {
+        let entry = map.get(agentId);
+        if (!entry) {
+          entry = { agentId, lastActiveAt: null, actions7d: 0, denied7d: 0, pendingApprovals: 0 };
+          map.set(agentId, entry);
+        }
+        return entry;
+      };
+      const touch = (entry: AgentActivity, at: string | null) => {
+        if (at && (!entry.lastActiveAt || at > entry.lastActiveAt)) {
+          entry.lastActiveAt = at;
+        }
+      };
+      for (const row of decisions) {
+        const entry = ensure(String(row.agentId));
+        touch(entry, row.lastAt);
+        entry.actions7d = Number(row.actions ?? 0);
+        entry.denied7d = Number(row.denied ?? 0);
+      }
+      for (const row of runs) {
+        touch(ensure(String(row.agentId)), row.lastAt);
+      }
+      for (const row of approvals) {
+        ensure(String(row.agentId)).pendingApprovals = Number(row.pending ?? 0);
+      }
+      return [...map.values()];
     },
 
     async getById(id: string, userId: string): Promise<Agent | null> {

@@ -23,6 +23,12 @@ import sqlite0018 from "../../drizzle/0018_notify_channels.sql" with { type: "te
 import sqlite0019 from "../../drizzle/0019_guardrails.sql" with { type: "text" };
 import sqlite0020 from "../../drizzle/0020_mcp_oauth.sql" with { type: "text" };
 import sqlite0021 from "../../drizzle/0021_gateway_attestation.sql" with { type: "text" };
+import sqlite0022 from "../../drizzle/0022_credential_masking_default.sql" with { type: "text" };
+import sqlite0023 from "../../drizzle/0023_trace_judgments.sql" with { type: "text" };
+import sqlite0024 from "../../drizzle/0024_oversight.sql" with { type: "text" };
+import sqlite0025 from "../../drizzle/0025_containment.sql" with { type: "text" };
+import sqlite0026 from "../../drizzle/0026_run_filter_indexes.sql" with { type: "text" };
+import sqlite0027 from "../../drizzle/0027_session_keys.sql" with { type: "text" };
 import pg0001 from "../../drizzle-pg/0001_init.sql" with { type: "text" };
 import pg0002 from "../../drizzle-pg/0002_prompts.sql" with { type: "text" };
 import pg0003 from "../../drizzle-pg/0003_eval.sql" with { type: "text" };
@@ -44,6 +50,12 @@ import pg0018 from "../../drizzle-pg/0018_notify_channels.sql" with { type: "tex
 import pg0019 from "../../drizzle-pg/0019_guardrails.sql" with { type: "text" };
 import pg0020 from "../../drizzle-pg/0020_mcp_oauth.sql" with { type: "text" };
 import pg0021 from "../../drizzle-pg/0021_gateway_attestation.sql" with { type: "text" };
+import pg0022 from "../../drizzle-pg/0022_credential_masking_default.sql" with { type: "text" };
+import pg0023 from "../../drizzle-pg/0023_trace_judgments.sql" with { type: "text" };
+import pg0024 from "../../drizzle-pg/0024_oversight.sql" with { type: "text" };
+import pg0025 from "../../drizzle-pg/0025_containment.sql" with { type: "text" };
+import pg0026 from "../../drizzle-pg/0026_run_filter_indexes.sql" with { type: "text" };
+import pg0027 from "../../drizzle-pg/0027_session_keys.sql" with { type: "text" };
 import type { MigrationFiles } from "./migrate";
 
 export const EMBEDDED_CORE_MIGRATIONS: MigrationFiles = {
@@ -69,6 +81,12 @@ export const EMBEDDED_CORE_MIGRATIONS: MigrationFiles = {
     "0019_guardrails.sql": sqlite0019,
     "0020_mcp_oauth.sql": sqlite0020,
     "0021_gateway_attestation.sql": sqlite0021,
+    "0022_credential_masking_default.sql": sqlite0022,
+    "0023_trace_judgments.sql": sqlite0023,
+    "0024_oversight.sql": sqlite0024,
+    "0025_containment.sql": sqlite0025,
+    "0026_run_filter_indexes.sql": sqlite0026,
+    "0027_session_keys.sql": sqlite0027,
   },
   postgres: {
     "0001_init.sql": pg0001,
@@ -92,5 +110,11 @@ export const EMBEDDED_CORE_MIGRATIONS: MigrationFiles = {
     "0019_guardrails.sql": pg0019,
     "0020_mcp_oauth.sql": pg0020,
     "0021_gateway_attestation.sql": pg0021,
+    "0022_credential_masking_default.sql": pg0022,
+    "0023_trace_judgments.sql": pg0023,
+    "0024_oversight.sql": pg0024,
+    "0025_containment.sql": pg0025,
+    "0026_run_filter_indexes.sql": pg0026,
+    "0027_session_keys.sql": pg0027,
   },
 };

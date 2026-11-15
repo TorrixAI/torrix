@@ -1,0 +1,12 @@
+/* Governance page rules (pre-utilities). */
+@media(width <= 1100px){
+.policies-table{table-layout:auto!important}
+.policies-table th:nth-child(4){display:none}
+.policies-table td:nth-child(4){display:none}
+.policies-table th:nth-child(5){display:none}
+.policies-table td:nth-child(5){display:none}
+.policies-table th:nth-child(6){display:none}
+.policies-table td:nth-child(6){display:none}
+.policies-table th{padding-left:8px!important;padding-right:8px!important}
+.policies-table td{padding-left:8px!important;padding-right:8px!important}
+}

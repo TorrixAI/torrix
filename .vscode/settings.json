@@ -1,0 +1,5 @@
+{
+  "terminal.integrated.env.osx": { "PATH": "${env:HOME}/.bun/bin:${env:PATH}" },
+  "terminal.integrated.env.linux": { "PATH": "${env:HOME}/.bun/bin:${env:PATH}" },
+  "terminal.integrated.env.windows": { "PATH": "${env:USERPROFILE}\\.bun\\bin;${env:PATH}" }
+}

@@ -48,11 +48,11 @@ check before it acts.
 | Traces, agent trees, cost, budgets, hard caps, evals, PII masking | ✓ | ✓ | ✓ |
 | LLM judge, online evaluations and guardrails built from your evaluations | | ✓ | ✓ |
 | Model routing, fallbacks and small-model savings | | ✓ | ✓ |
-| Policy engine and human review queue | | ✓ | ✓ |
+| Content rules and human review queue | | ✓ | ✓ |
 | Agent identities, signed grants and delegated authority: which agent may do what, on whose behalf | | ✓ (10 agents) | ✓ (unlimited) |
 | Policy, risk scoring and single-use approvals for agent actions, with an audit trail | | ✓ | ✓ |
 | Governed MCP gateway: tool calls are checked and denied or held for approval before they run | | ✓ | ✓ |
-| Agent-to-agent delegation, signed calls to downstream servers, permission graph | | | ✓ |
+| Agent-to-agent delegation, signed calls to downstream servers, who-can-do-what view | | | ✓ |
 | Single sign-on, Entra ID, Okta and SCIM directory sync, EU AI Act reports, audit export | | | ✓ |
 
 The paid editions run on your servers too and keep your Community data when you upgrade. See

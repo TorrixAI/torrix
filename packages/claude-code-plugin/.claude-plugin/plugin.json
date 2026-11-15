@@ -1,7 +1,7 @@
 {
   "name": "torrix",
   "displayName": "Torrix for Claude Code",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Logs every Claude Code model call (tokens, cache, cost, prompts, tool calls, subagents) to your self-hosted Torrix instance.",
   "author": { "name": "Torrix" },
   "license": "FSL-1.1-ALv2",
@@ -24,6 +24,24 @@
       "type": "string",
       "title": "Torrix project",
       "description": "Optional project id or name. Leave empty for your default project."
+    },
+    "agent_key": {
+      "type": "string",
+      "title": "Agent credential (enforcement)",
+      "description": "Optional trxa_ credential with the authorize scope. Needed only when guard is observe or enforce.",
+      "sensitive": true
+    },
+    "guard": {
+      "type": "string",
+      "title": "Tool enforcement",
+      "description": "off, observe or enforce. Default off.",
+      "default": "off"
+    },
+    "guard_fail": {
+      "type": "string",
+      "title": "When Torrix is unreachable",
+      "description": "open allows the tool, closed denies it. Default open.",
+      "default": "open"
     }
   }
 }

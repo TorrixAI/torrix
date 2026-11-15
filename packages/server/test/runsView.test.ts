@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Run, RunData } from "../src/core/domain";
 import { buildRunRow } from "../src/lib/runMapper";
-import { bearer, createTestApp, seedSession } from "./helpers";
+import { bearer, createTestApp, expectSpaShell, seedSession } from "./helpers";
 
 function seedRun(userId: string, projectId: string, overrides: Partial<RunData> & { id: string; created_at: string }): Run {
   return buildRunRow({
@@ -63,54 +63,43 @@ test("runs view summarizes and groups sessions, traces, agents and subagents", a
       await ctx.repos.runs.save(run);
     }
 
-    const plain = await ctx.app.inject({ method: "GET", url: "/ui/runs", headers: bearer(session.key) });
+    const plain = await ctx.app.inject({ method: "GET", url: "/api/runs", headers: bearer(session.key) });
     expect(plain.statusCode).toBe(200);
-    expect(plain.body).toContain("2 agents");
-    expect(plain.body).toContain("1 subagent run");
-    expect(plain.body).toContain("2 sessions");
-    expect(plain.body).toContain("3 traces");
-    expect(plain.body).toContain("agent-chip");
-    expect(plain.body).toContain("/ui/sessions/ses_1");
-    expect(plain.body).toContain("torrix-auto-refresh");
-    expect(plain.body).toContain("1 sub</span>");
+    const plainBody = plain.json() as { runs: Array<{ id: string }>; summary: { agents: number; subagents: number; sessions: number; traces: number } };
+    expect(plainBody.summary).toMatchObject({ agents: 2, subagents: 1, sessions: 2, traces: 3 });
+    expect(plainBody.runs.map((run) => run.id)).toEqual(expect.arrayContaining(["run_root", "run_child", "run_other"]));
 
-    const grouped = await ctx.app.inject({ method: "GET", url: "/ui/runs?group=session", headers: bearer(session.key) });
+    const grouped = await ctx.app.inject({ method: "GET", url: "/api/runs?group=session", headers: bearer(session.key) });
     expect(grouped.statusCode).toBe(200);
-    expect(grouped.body).toContain("group-row");
-    expect(grouped.body).toContain("/ui/sessions/ses_1");
-    expect(grouped.body).toContain("2 agents");
-    expect(grouped.body).toContain("1 subagent");
-    expect(grouped.body).toContain("grouped by session");
+    const groupedBody = grouped.json() as { groups: Array<{ id: string; runs: number; agents: string[] }>; runs: Array<{ id: string; session_id: string | null }> };
+    expect(groupedBody.groups.find((group) => group.id === "ses_1")).toMatchObject({ runs: 2 });
+    expect(groupedBody.runs.map((run) => run.id)).toEqual(expect.arrayContaining(["run_root", "run_child"]));
 
-    const byTrace = await ctx.app.inject({ method: "GET", url: "/ui/runs?group=trace", headers: bearer(session.key) });
-    expect(byTrace.statusCode).toBe(200);
-    expect(byTrace.body).toContain("/ui/traces/trc_1");
-    expect(byTrace.body).toContain("/ui/traces/trc_2");
+    const byTrace = await ctx.app.inject({ method: "GET", url: "/api/runs?group=trace", headers: bearer(session.key) });
+    const byTraceBody = byTrace.json() as { groups: Array<{ id: string }> };
+    expect(byTraceBody.groups.map((group) => group.id)).toEqual(expect.arrayContaining(["trc_1", "trc_2"]));
 
-    const traces = await ctx.app.inject({ method: "GET", url: "/ui/traces", headers: bearer(session.key) });
+    const traces = await ctx.app.inject({ method: "GET", url: "/api/traces", headers: bearer(session.key) });
     expect(traces.statusCode).toBe(200);
-    expect(traces.body).toContain("Subagents");
-    expect(traces.body).toContain("torrix-auto-refresh");
+    const tracesBody = traces.json() as { sessions: Array<{ id: string; subagents: number }>; traces: Array<{ id: string }> };
+    expect(tracesBody.sessions.map((group) => group.id)).toContain("ses_1");
+    expect(tracesBody.sessions.find((group) => group.id === "ses_1")?.subagents).toBe(1);
+    expect(tracesBody.traces.map((group) => group.id)).toContain("trc_1");
 
-    const sessionPage = await ctx.app.inject({ method: "GET", url: "/ui/sessions/ses_1", headers: bearer(session.key) });
-    expect(sessionPage.statusCode).toBe(200);
-    expect(sessionPage.body).toContain("1 child call");
-    expect(sessionPage.body).toContain("torrix-auto-refresh");
-    expect(sessionPage.body).toContain('data-view="flow"');
-    expect(sessionPage.body).toContain("view-flow");
-    expect(sessionPage.body).toContain("torrix_trace_view");
-    expect(sessionPage.body).toContain("window.torrixRenderFlow");
-    expect(sessionPage.body).toContain("flow-edge");
+    const sessionGroup = await ctx.app.inject({ method: "GET", url: "/api/runs/group/session/ses_1", headers: bearer(session.key) });
+    expect(sessionGroup.statusCode).toBe(200);
+    const groupBody = sessionGroup.json() as { runs: Array<{ id: string; parent_run_id: string | null; agent_name: string | null }>; total: number };
+    expect(groupBody.total).toBe(2);
+    expect(groupBody.runs.find((run) => run.id === "run_child")?.parent_run_id).toBe("run_root");
+    expect(groupBody.runs.find((run) => run.id === "run_child")?.agent_name).toBe("explore");
+    expect(groupBody.runs.find((run) => run.id === "run_root")?.parent_run_id).toBeNull();
 
-    const flowPayloadMatch = sessionPage.body.match(/var DATA=(\{.*?\});\s*var wrap=/s);
-    expect(flowPayloadMatch).toBeTruthy();
-    const flowPayload = JSON.parse(flowPayloadMatch![1].replace(/\\u003c/g, "<"));
-    expect(flowPayload.total).toBe(2);
-    const child = flowPayload.runs.find((entry: { id: string }) => entry.id === "run_child");
-    expect(child.parent).toBe("run_root");
-    expect(child.agent).toBe("explore");
-    expect(child.url).toBe("/ui/runs/run_child");
-    expect(flowPayload.runs.find((entry: { id: string }) => entry.id === "run_root").parent).toBeNull();
+    // The list, grouped list and drill-in all serve the one SPA shell.
+    for (const url of ["/ui/runs", "/ui/runs?group=session", "/ui/runs?group=trace", "/ui/traces", "/ui/sessions/ses_1"]) {
+      const page = await ctx.app.inject({ method: "GET", url, headers: bearer(session.key) });
+      expect(page.statusCode, url).toBe(200);
+      expectSpaShell(page.body);
+    }
   } finally {
     await ctx.cleanup();
   }
@@ -131,20 +120,22 @@ test("run detail carries a breadcrumb path and a previous/next stepper inside th
       await ctx.repos.runs.save(run);
     }
 
-    const middle = await ctx.app.inject({ method: "GET", url: "/ui/runs/step-2", headers: bearer(session.key) });
-    expect(middle.statusCode).toBe(200);
-    expect(middle.body).toContain("rd-breadcrumb");
-    expect(middle.body).toContain("plan the refund");
-    expect(middle.body).toContain("2 of 3 in trace");
-    expect(middle.body).toContain('href="/ui/runs/step-1"');
-    expect(middle.body).toContain('href="/ui/runs/step-3"');
+    // The breadcrumb and stepper read the run plus its trace group, oldest first.
+    const middle = (await ctx.app.inject({ method: "GET", url: "/api/runs/step-2", headers: bearer(session.key) })).json() as { trace_id: string; children: Array<{ id: string }> };
+    expect(middle.trace_id).toBe("trc_x");
+    expect(middle.children.map((run) => run.id)).toEqual(["step-3"]);
+    const group = (await ctx.app.inject({ method: "GET", url: "/api/runs/group/trace/trc_x?descendants=0", headers: bearer(session.key) })).json() as {
+      runs: Array<{ id: string; name: string; parent_run_id: string | null; created_at: string }>;
+    };
+    const ordered = [...group.runs].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+    expect(ordered.map((run) => run.id)).toEqual(["step-1", "step-2", "step-3"]);
+    expect(ordered.findIndex((run) => run.id === "step-2")).toBe(1);
+    expect(ordered[ordered.findIndex((run) => run.id === "step-2") + 1].name).toBe("issue refund");
+    expect(ordered[ordered.findIndex((run) => run.id === "step-3") - 1].name).toBe("look up order");
 
-    const last = await ctx.app.inject({ method: "GET", url: "/ui/runs/step-3", headers: bearer(session.key) });
-    expect(last.statusCode).toBe(200);
-    expect(last.body).toContain("3 of 3 in trace");
-    expect(last.body).toContain("look up order");
-    expect(last.body).toContain("← Previous");
-    expect(last.body).not.toContain("Next →");
+    const page = await ctx.app.inject({ method: "GET", url: "/ui/runs/step-2", headers: bearer(session.key) });
+    expect(page.statusCode).toBe(200);
+    expectSpaShell(page.body);
   } finally {
     await ctx.cleanup();
   }
@@ -174,31 +165,37 @@ test("grouped runs list pages by group with full group aggregates", async () => 
       }
     }
 
-    const first = await ctx.app.inject({ method: "GET", url: "/ui/runs?group=session", headers: bearer(session.key) });
-    expect(first.statusCode).toBe(200);
-    expect(first.body).toContain("Groups <b>1–10</b> of <b>12</b>");
-    expect(first.body).toContain("showing <b>50</b> runs");
-    expect(first.body).toContain("5 runs");
-    expect(first.body).toContain("4 subagents");
-    expect(first.body).toContain('href="/ui/sessions/ses_11"');
-    expect(first.body).not.toContain('href="/ui/sessions/ses_1"');
-    expect(first.body).toContain("gpage=1");
+    type Grouped = { groups: Array<{ id: string; runs: number; subagents: number }>; runs: unknown[]; group_total: number; group_page: number; group_limit: number };
+    const first = (await ctx.app.inject({ method: "GET", url: "/api/runs?group=session", headers: bearer(session.key) })).json() as Grouped;
+    expect(first.group_total).toBe(12);
+    expect(first.groups).toHaveLength(10);
+    expect(first.runs).toHaveLength(50);
+    expect(first.groups[0]).toMatchObject({ runs: 5, subagents: 4 });
+    expect(first.groups.map((group) => group.id)).toContain("ses_11");
+    expect(first.groups.map((group) => group.id)).not.toContain("ses_1");
 
-    const second = await ctx.app.inject({ method: "GET", url: "/ui/runs?group=session&gpage=1", headers: bearer(session.key) });
-    expect(second.statusCode).toBe(200);
-    expect(second.body).toContain("Groups <b>11–12</b> of <b>12</b>");
-    expect(second.body).toContain("showing <b>10</b> runs");
-    expect(second.body).toContain('href="/ui/sessions/ses_1"');
-    expect(second.body).toContain('href="/ui/sessions/ses_0"');
-    expect(second.body).not.toContain('href="/ui/sessions/ses_11"');
-    expect(second.body).not.toContain("gpage=2");
+    const second = (await ctx.app.inject({ method: "GET", url: "/api/runs?group=session&gpage=1", headers: bearer(session.key) })).json() as Grouped;
+    expect(second.group_page).toBe(1);
+    expect(second.groups).toHaveLength(2);
+    expect(second.runs).toHaveLength(10);
+    expect(second.groups.map((group) => group.id)).toEqual(expect.arrayContaining(["ses_1", "ses_0"]));
+    expect(second.groups.map((group) => group.id)).not.toContain("ses_11");
 
-    const filtered = await ctx.app.inject({ method: "GET", url: "/ui/runs?group=session&agent=explore", headers: bearer(session.key) });
-    expect(filtered.statusCode).toBe(200);
-    expect(filtered.body).toContain("of <b>6</b>");
-    expect(filtered.body).toContain("showing <b>30</b> runs");
-    expect(filtered.body).toContain('href="/ui/sessions/ses_1"');
-    expect(filtered.body).not.toContain('href="/ui/sessions/ses_0"');
+    const filtered = (await ctx.app.inject({ method: "GET", url: "/api/runs?group=session&agent=explore", headers: bearer(session.key) })).json() as Grouped;
+    expect(filtered.group_total).toBe(6);
+    expect(filtered.runs).toHaveLength(30);
+    expect(filtered.groups.map((group) => group.id)).toContain("ses_1");
+    expect(filtered.groups.map((group) => group.id)).not.toContain("ses_0");
+
+    const clamped = (await ctx.app.inject({ method: "GET", url: "/api/runs?group=session&gpage=99", headers: bearer(session.key) })).json() as Grouped;
+    expect(clamped.group_page).toBe(1);
+    expect(clamped.groups).toHaveLength(2);
+    expect(clamped.runs).toHaveLength(10);
+
+    const narrowed = (await ctx.app.inject({ method: "GET", url: "/api/runs?group=session&gpage=1&agent=explore", headers: bearer(session.key) })).json() as Grouped;
+    expect(narrowed.group_page).toBe(0);
+    expect(narrowed.group_total).toBe(6);
+    expect(narrowed.groups).toHaveLength(6);
   } finally {
     await ctx.cleanup();
   }

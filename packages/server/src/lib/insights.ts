@@ -1,5 +1,5 @@
 import type { Repositories } from "../repos";
-import type { Run, SlmOpportunity } from "../core/domain";
+import type { Events, Run, SlmOpportunity } from "../core/domain";
 import { calculateCost } from "./pricing";
 import { extractUserPrompt } from "./extract";
 import { NO_ASSIST, type Assist } from "../core/extensions";
@@ -502,6 +502,119 @@ export async function loadCachedTraceInsights(
   } catch {
     return null;
   }
+}
+
+export interface TraceStepDigest {
+  run_id: string;
+  name: string;
+  agent: string | null;
+  status: number | null;
+  duration_ms: number | null;
+  tool: string | null;
+  error: string | null;
+  subagent: boolean;
+}
+
+export interface TraceDigest {
+  traceId: string;
+  prompt: string;
+  answer: string;
+  steps: TraceStepDigest[];
+  elided: number;
+  totals: { runs: number; costUsd: number; latencyMs: number; errors: number; retries: number };
+  text: string;
+}
+
+function toolNameFromEvent(event: Events | undefined): string | null {
+  if (!event) return null;
+  try {
+    const parsed = JSON.parse(event.message) as unknown;
+    const first = Array.isArray(parsed) ? parsed[0] : parsed;
+    if (first && typeof first === "object" && typeof (first as { name?: unknown }).name === "string") {
+      return String((first as { name: string }).name).slice(0, 80);
+    }
+  } catch {
+    // The event may be a plain command line rather than JSON.
+  }
+  return event.message.trim().slice(0, 80) || null;
+}
+
+/** One deterministic trace digest shared by insight generation and trace judging. */
+export function buildTraceDigestFromRuns(runs: Run[], events: Events[], budget = 1_200): TraceDigest {
+  const ordered = [...runs].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  const eventByRun = new Map<string, Events[]>();
+  for (const event of events) {
+    const list = eventByRun.get(event.run_id) ?? [];
+    list.push(event);
+    eventByRun.set(event.run_id, list);
+  }
+  const prompt =
+    ordered.map((run) => extractUserPrompt(run.request_body)).find((value): value is string => Boolean(value)) ?? "";
+  const responseRuns = [...ordered].reverse();
+  let answer = "";
+  for (const run of responseRuns) {
+    const response = (eventByRun.get(run.id) ?? []).filter((event) => event.type === "response").at(-1);
+    if (response?.message.trim()) { answer = response.message.trim(); break; }
+  }
+  const steps: TraceStepDigest[] = ordered.map((run) => {
+    const runEvents = eventByRun.get(run.id) ?? [];
+    const tool = toolNameFromEvent(runEvents.find((event) => event.type === "tool_call"));
+    const errorEvent = runEvents.find((event) => event.type === "error");
+    return {
+      run_id: run.id,
+      name: (run.name || run.id).slice(0, 120),
+      agent: run.agent_name ?? run.agent_id ?? null,
+      status: run.status ?? null,
+      duration_ms: run.latency_ms ?? null,
+      tool,
+      error: (errorEvent?.message || (run.status != null && run.status >= 400 ? run.finish_reason || `status ${run.status}` : "")).slice(0, 240) || null,
+      subagent: Boolean(run.parent_run_id),
+    };
+  });
+  const first = 12;
+  const last = 6;
+  const keep = new Set<number>();
+  steps.forEach((step, index) => {
+    if (index < first || index >= steps.length - last || (step.status != null && step.status >= 400)) keep.add(index);
+  });
+  const selected: number[] = [];
+  let used = 0;
+  for (const index of [...keep].sort((a, b) => a - b)) {
+    const cost = Math.ceil(JSON.stringify(steps[index]).length / 4);
+    if (used + cost > budget && selected.length) continue;
+    selected.push(index);
+    used += cost;
+  }
+  const elided = steps.length - selected.length;
+  const totalLatency = ordered.reduce((sum, run) => sum + Number(run.latency_ms ?? 0), 0);
+  const errors = ordered.filter((run) => run.status != null && run.status >= 400).length;
+  const retries = ordered.filter((run) => run.fallback_used).length;
+  const totals = {
+    runs: ordered.length,
+    costUsd: Number(ordered.reduce((sum, run) => sum + Number(run.cost_usd ?? 0), 0).toFixed(6)),
+    latencyMs: totalLatency,
+    errors,
+    retries,
+  };
+  const stepText = selected.map((index) => {
+    const step = steps[index];
+    return `${index + 1}. ${step.tool ? `tool:${step.tool}` : step.name}${step.agent ? ` agent:${step.agent}` : ""} status:${step.status ?? "unknown"} ${step.duration_ms ?? "?"}ms${step.subagent ? " subagent" : ""}${step.error ? ` error:${step.error}` : ""}`;
+  });
+  const text = [
+    prompt ? `Prompt: ${prompt.slice(0, 2_000)}` : "Prompt: (no human prompt captured)",
+    answer ? `Answer: ${answer.slice(0, 2_000)}` : "Answer: (no response captured)",
+    `Totals: ${JSON.stringify(totals)}`,
+    `Steps (${selected.length} shown${elided ? `, ${elided} elided` : ""}):`,
+    ...stepText,
+  ].join("\n");
+  return { traceId: ordered[0]?.trace_id ?? "", prompt, answer, steps, elided, totals, text };
+}
+
+export async function loadTraceDigest(repos: Repositories, userId: string, traceId: string, budget = 1_200): Promise<TraceDigest | null> {
+  const { runs } = await repos.runs.listGroup(userId, { kind: "trace", id: traceId, limit: 500, offset: 0 });
+  if (!runs.length) return null;
+  const events = await repos.events.listByRunIds(runs.map((run) => run.id));
+  return { ...buildTraceDigestFromRuns(runs, events, budget), traceId };
 }
 
 export async function generateTraceInsights(

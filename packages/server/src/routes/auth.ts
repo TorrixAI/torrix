@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import bcrypt from "bcryptjs";
-import { generateApiKey, hashKey, keyPrefix, getUserLimit, authenticateKey, extractBearer, buildAuthCookie } from "../lib/auth";
+import { generateApiKey, hashKey, keyPrefix, getUserLimit, authenticateKey, extractBearer, buildAuthCookie, readAuthCookie } from "../lib/auth";
 import { recordAudit, clientIp } from "../lib/audit";
 import type { ServerConfig } from "../core/config";
 import type { Repositories } from "../repos";
@@ -22,6 +22,12 @@ export async function requireApiKey(deps: AuthDeps, request: { headers: unknown 
 
 export async function authRoute(app: FastifyInstance, deps: AuthDeps): Promise<void> {
   const { repos, config } = deps;
+
+  // Public: the login page hides "Create account" once sign-up is closed.
+  app.get("/auth/signup-status", async () => {
+    const count = await repos.users.countUsers();
+    return { open: config.allowSignup || count === 0, users: count };
+  });
 
   app.post("/auth/signup", async (request, reply) => {
       const body = (request.body ?? {}) as { email?: string; password?: string };
@@ -102,20 +108,28 @@ export async function authRoute(app: FastifyInstance, deps: AuthDeps): Promise<v
       }
 
       const now = new Date().toISOString();
-      const key = generateApiKey();
-      await repos.apiKeys.create({
-        id: crypto.randomUUID(),
-        user_id: user.id,
-        name: "Session key",
-        key_hash: hashKey(key),
-        key_prefix: keyPrefix(key),
-        scope: "full",
-        projects: null,
-        permission: "read_write",
-        created_at: now,
-        last_used_at: null,
-        revoked_at: null,
-      });
+      const cookieKey = readAuthCookie(request.headers);
+      const existing = cookieKey ? await authenticateKey(repos.db, cookieKey) : null;
+      const key = existing?.user.id === user.id ? cookieKey! : generateApiKey();
+      if (existing?.user.id !== user.id) {
+        await repos.apiKeys.create({
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          name: `Session key ${now.slice(0, 10)}`,
+          key_hash: hashKey(key),
+          key_prefix: keyPrefix(key),
+          scope: "full",
+          projects: null,
+          permission: "read_write",
+          created_at: now,
+          last_used_at: null,
+          revoked_at: null,
+          session: 1,
+        });
+      }
+      // A fresh sign-in is a good moment to retire browser sessions nobody has
+      // used for a month. Manual keys are never session=1 and stay untouched.
+      await repos.apiKeys.revokeStaleSessions(user.id, new Date(Date.now() - 30 * 86_400_000).toISOString());
 
       return reply.header("set-cookie", buildAuthCookie(key)).send({
         api_key: key,

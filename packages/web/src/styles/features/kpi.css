@@ -1,0 +1,14 @@
+/* Kpi — post-utilities overrides. */
+.donut-legend .sw.s1{background:var(--s1)}
+.donut-legend .sw.s2{background:var(--s2)}
+.donut-legend .sw.s3{background:var(--s3)}
+.donut-legend .sw.s4{background:var(--s4)}
+.donut-legend .sw.s5{background:var(--s5)}
+.trend.good{color:var(--good)}
+.trend.bad{color:var(--bad)}
+.trend.neutral{color:var(--text-3)}
+.db-delta.neutral{color:var(--text-3);border-color:var(--line);background:transparent}
+.db-kpi.is-hero .db-kpi-value{text-decoration-color:var(--text-2)}
+.panel-tools{display:flex;align-items:center;gap:var(--sp-3);margin-left:auto;min-width:0}
+.db-compare{display:inline-flex;align-items:center;gap:7px;font:500 12px/1.3 var(--sans);color:var(--text-2);white-space:nowrap;cursor:pointer}
+.sparkline-bar.is-zero{fill:var(--line-2);opacity:.9}

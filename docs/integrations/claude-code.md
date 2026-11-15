@@ -18,16 +18,34 @@ and the plugin catches up on the next turn without creating duplicates.
 
 ## Install
 
-The easiest way is the **Integrations** page in Torrix: click **Generate key** on the Claude Code
-card and copy the command. It looks like this:
+The easiest way is the **Integrations** page in Torrix. Choose **Claude Code**, click **Generate
+key** and copy the command it shows.
+
+macOS and Linux:
+
+```bash
+curl -fsSL http://localhost:8088/api/connect/claude-code.sh | TORRIX_API_KEY=trxk_YOUR_KEY sh
+```
+
+Windows PowerShell:
+
+```powershell
+$env:TORRIX_API_KEY="trxk_YOUR_KEY"; irm http://localhost:8088/api/connect/claude-code.ps1 | iex
+```
+
+The command installs the plugin from the marketplace, points it at your Torrix instance and stores
+the key in Claude Code's secure store. Re-run it whenever your key or Torrix address changes. Then
+start a new Claude Code session, or run `/reload-plugins` in the current one.
+
+### Manual installation
+
+From a terminal:
 
 ```bash
 claude plugin install torrix --marketplace TorrixAI/torrix --config api_key=trxk_YOUR_KEY --config base_url=http://localhost:8088
 ```
 
-Then start a new Claude Code session, or run `/reload-plugins` in the current one.
-
-You can also install from inside Claude Code:
+Or from inside Claude Code:
 
 ```
 /plugin marketplace add TorrixAI/torrix

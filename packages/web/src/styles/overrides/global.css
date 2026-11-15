@@ -1,0 +1,28 @@
+/* Global — post-utilities overrides. */
+button:focus-visible{outline:2px solid var(--focus-outline)!important;outline-offset:2px!important;box-shadow:0 0 0 4px var(--focus-halo)!important}
+a:focus-visible{outline:2px solid var(--focus-outline)!important;outline-offset:2px!important;box-shadow:0 0 0 4px var(--focus-halo)!important}
+select:focus-visible{outline:2px solid var(--focus-outline)!important;outline-offset:2px!important;box-shadow:0 0 0 4px var(--focus-halo)!important}
+textarea:focus-visible{outline:2px solid var(--focus-outline)!important;outline-offset:2px!important;box-shadow:0 0 0 4px var(--focus-halo)!important}
+a{color:var(--text)}
+a:hover{color:var(--text);text-decoration:underline;text-underline-offset:2px}
+.empty-sub a{color:var(--brand-text)}
+.badge.accent{color:var(--text);border-color:var(--line-2);background:var(--surface-2)}
+textarea{max-width:480px}
+.field-hint{font-size:12px!important;line-height:1.5;color:var(--text-3)!important;margin-top:6px!important}
+.field-error{display:flex;align-items:center;gap:6px;color:var(--bad)!important;font-size:12px!important;line-height:1.5;min-height:18px;margin-top:8px}
+.field-error::before{content:"!";display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:var(--bad-dim);border:1px solid var(--bad-line);font:700 10px/1 var(--sans);flex:0 0 14px}
+.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-3) 16px}
+.form-subhead{font:600 12px/1.4 var(--sans);color:var(--text-2);margin:18px 0 8px}
+@media(width <= 760px){
+.form-grid{grid-template-columns:1fr}
+}
+.error-panel{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);border:1px solid var(--bad-line);background:var(--bad-dim);border-radius:var(--r-lg);padding:var(--sp-4) 18px;margin-top:18px}
+.error-panel .empty-title{display:block;color:var(--text)}
+.error-panel .empty-sub{display:block;margin-top:4px}
+.empty-value p{margin:0;color:var(--text-3);font:400 13px/1.5 var(--sans)}
+.empty-value .field-hint{margin-top:3px!important}
+.delta-tone.good{color:var(--good)!important}
+.delta-tone.bad{color:var(--bad)!important}
+.delta-tone.neutral{color:var(--text-3)!important}
+.error-plain{color:var(--text-2);font-variant-numeric:tabular-nums}
+.st-empty{font:500 16px/1.2 var(--sans);color:var(--text-3)}

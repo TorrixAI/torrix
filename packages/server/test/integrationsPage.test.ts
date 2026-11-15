@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { buildRunRow } from "../src/lib/runMapper";
-import { bearer, createTestApp, seedSession, type TestApp } from "./helpers";
+import { bearer, createTestApp, expectSpaShell, seedSession, type TestApp } from "./helpers";
 
 async function saveRun(ctx: TestApp, userId: string, fields: Record<string, unknown>): Promise<void> {
   await ctx.repos.runs.save(
@@ -8,36 +8,59 @@ async function saveRun(ctx: TestApp, userId: string, fields: Record<string, unkn
   );
 }
 
-test("integrations page shows every card with this instance's URL and a key placeholder", async () => {
+test("integrations page serves the console and the API carries the instance URL and key placeholder", async () => {
   const ctx = await createTestApp({ TORRIX_PLUGIN_MARKETPLACE: "acme/torrix-plugins" });
   try {
     const session = await seedSession(ctx);
-    const res = await ctx.app.inject({
-      method: "GET",
-      url: "/ui/integrations",
-      headers: { ...bearer(session.key), host: "torrix.internal:9000", "x-forwarded-proto": "https" },
-    });
+    const headers = { ...bearer(session.key), host: "torrix.internal:9000", "x-forwarded-proto": "https" };
+    const res = await ctx.app.inject({ method: "GET", url: "/ui/integrations", headers });
     expect(res.statusCode).toBe(200);
-    for (const id of ["claude-code", "opencode", "sdk", "proxy", "otel"]) {
-      expect(res.body).toContain(`data-int="${id}"`);
-    }
-    expect(res.body).toContain("claude plugin install torrix --marketplace acme/torrix-plugins --config api_key=trxk_YOUR_KEY --config base_url=https://torrix.internal:9000");
-    expect(res.body).toContain("https://torrix.internal:9000/v1/traces");
-    expect(res.body).toContain('href="/ui/integrations"');
-    expect(res.body).toContain("Waiting for first run");
-    expect(res.body).not.toContain("—");
+    expectSpaShell(res.body);
+
+    // Cards and commands are rendered client-side; the data they need comes
+    // from /api/integrations.
+    const api = await ctx.app.inject({ method: "GET", url: "/api/integrations", headers });
+    expect(api.statusCode).toBe(200);
+    const data = api.json() as { base_url: string; plugin_marketplace: string; integrations: Array<{ id: string }> };
+    expect(data.base_url).toBe("https://torrix.internal:9000");
+    expect(data.plugin_marketplace).toBe("acme/torrix-plugins");
+    expect(data.integrations.map((i) => i.id)).toEqual(expect.arrayContaining(["claude-code", "opencode", "sdk", "proxy", "otel"]));
   } finally {
     await ctx.cleanup();
   }
 });
 
-test("without a configured marketplace the Claude Code card still offers an install command", async () => {
+test("without a configured marketplace the API still offers an install source", async () => {
   const ctx = await createTestApp({ TORRIX_PLUGIN_MARKETPLACE: "" });
   try {
     const session = await seedSession(ctx);
-    const res = await ctx.app.inject({ method: "GET", url: "/ui/integrations", headers: bearer(session.key) });
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toMatch(/--marketplace (\S+)/);
+    const api = await ctx.app.inject({ method: "GET", url: "/api/integrations", headers: bearer(session.key) });
+    expect(api.statusCode).toBe(200);
+    const data = api.json() as { plugin_marketplace: string };
+    expect(data.plugin_marketplace.length).toBeGreaterThan(0);
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test("connect installers are served with the instance URL and configured marketplace", async () => {
+  const ctx = await createTestApp({ TORRIX_PLUGIN_MARKETPLACE: "acme/torrix-plugins" });
+  try {
+    const headers = { host: "torrix.internal:9000", "x-forwarded-proto": "https" };
+    const opencode = await ctx.app.inject({ method: "GET", url: "/api/connect/opencode.sh", headers });
+    expect(opencode.statusCode).toBe(200);
+    expect(String(opencode.headers["content-type"])).toContain("shellscript");
+    expect(opencode.body).toContain("https://torrix.internal:9000");
+    expect(opencode.body).not.toMatch(/trxk_[0-9a-f]{32}/);
+
+    const claude = await ctx.app.inject({ method: "GET", url: "/api/connect/claude-code.sh", headers });
+    expect(claude.statusCode).toBe(200);
+    expect(claude.body).toContain("acme/torrix-plugins");
+    expect(claude.body).toContain("claude plugin install torrix");
+
+    const powershell = await ctx.app.inject({ method: "GET", url: "/api/connect/opencode.ps1", headers });
+    expect(powershell.statusCode).toBe(200);
+    expect(powershell.body).toContain("opencode.json");
   } finally {
     await ctx.cleanup();
   }
@@ -70,32 +93,25 @@ test("integration status reflects which client delivered runs and how recently",
     expect(byId.otel).toMatchObject({ runs_24h: 0, last_at: null });
 
     const page = await ctx.app.inject({ method: "GET", url: "/ui/integrations", headers: bearer(session.key) });
-    expect(page.body).toContain("Connected · last run");
-    expect(page.body).toContain("2 runs in 24h");
+    expect(page.statusCode).toBe(200);
+    expectSpaShell(page.body);
   } finally {
     await ctx.cleanup();
   }
 });
 
-test("commands come in macOS/Linux and Windows PowerShell variants, defaulting to the visitor's OS", async () => {
+test("the integrations page serves the console for any visitor OS", async () => {
   const ctx = await createTestApp();
   try {
     const session = await seedSession(ctx);
-    const page = async (userAgent: string) =>
-      (await ctx.app.inject({ method: "GET", url: "/ui/integrations", headers: { ...bearer(session.key), "user-agent": userAgent } })).body;
-
-    const windows = await page("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-    expect(windows).toContain('class="int-page" data-shell="powershell"');
-    expect(windows).toContain("Invoke-RestMethod -Method Post");
-    expect(windows).toContain("setx TORRIX_API_KEY &quot;trxk_YOUR_KEY&quot;");
-    expect(windows).toContain("$env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT");
-    expect(windows).toContain("curl http://localhost:80/proxy/chat/completions");
-
-    const mac = await page("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)");
-    expect(mac).toContain('class="int-page" data-shell="posix"');
-    expect(mac.match(/int-code" data-variant="posix"/g)?.length).toBe(mac.match(/int-code" data-variant="powershell"/g)?.length);
-    expect(windows).toContain("irm https://claude.ai/install.ps1 | iex");
-    expect(windows).toContain("Open Windows PowerShell, not Command Prompt.");
+    for (const userAgent of [
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)",
+    ]) {
+      const res = await ctx.app.inject({ method: "GET", url: "/ui/integrations", headers: { ...bearer(session.key), "user-agent": userAgent } });
+      expect(res.statusCode).toBe(200);
+      expectSpaShell(res.body);
+    }
   } finally {
     await ctx.cleanup();
   }

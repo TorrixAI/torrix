@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { Run } from "../src/core/domain";
 import { calculateCost } from "../src/lib/pricing";
 import { recommendSavings } from "../src/lib/savings";
-import { bearer, createTestApp, seedSession, type TestApp } from "./helpers";
+import { bearer, createTestApp, expectSpaShell, seedSession, type TestApp } from "./helpers";
 
 async function seedProject(
   ctx: TestApp,
@@ -152,11 +152,15 @@ test("insights page renders the savings panel and top figure", async () => {
     }
     const res = await ctx.app.inject({ method: "GET", url: "/ui/insights", headers: bearer(session.key) });
     expect(res.statusCode).toBe(200);
-    expect(res.body).toContain("Savings opportunities");
-    expect(res.body).toContain("Savings found");
-    expect(res.body).toContain("in-conf");
-    expect(res.body).toMatch(/\$\d+(\.\d+)?\/mo/);
-    expect(res.body).toContain("View runs");
+    expectSpaShell(res.body);
+    // The panel's data is /api/insights/savings, which the page renders client-side.
+    const report = await ctx.app.inject({ method: "GET", url: "/api/insights/savings?days=30", headers: bearer(session.key) });
+    expect(report.statusCode).toBe(200);
+    const savings = report.json() as { recommendations: Array<{ kind: string; monthly_usd: number; confidence: string; evidence: { runs: number } }> };
+    expect(savings.recommendations.length).toBeGreaterThan(0);
+    expect(["high", "medium", "low"]).toContain(savings.recommendations[0].confidence);
+    expect(savings.recommendations[0].monthly_usd).toBeGreaterThan(0);
+    expect(savings.recommendations[0].evidence.runs).toBeGreaterThan(0);
   } finally {
     await ctx.cleanup();
   }

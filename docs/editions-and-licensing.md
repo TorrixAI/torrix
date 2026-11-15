@@ -16,17 +16,18 @@ runs, settings, users and API keys.
 | Observed agents (agents seen in your runs) | ✓ | ✓ | ✓ |
 | LLM judge, online evaluations, eval guardrails | | ✓ | ✓ |
 | Model routing and fallback, small-model savings analysis | | ✓ | ✓ |
-| Policy engine and human review queue | | ✓ | ✓ |
-| Agent control plane: agent identities and credentials, enterprise agent tokens (Entra Agent ID, Okta, AgentCore), signed grants with per-grant revocation, delegated authority, authorization policies and policy packs, risk scoring, single-use approvals | | ✓ (10 agents) | ✓ (unlimited) |
+| Content rules and human review queue | | ✓ | ✓ |
+| Agent control plane: agent identities and credentials, enterprise agent tokens (Entra Agent ID, Okta, AgentCore), signed grants with per-grant revocation, delegated authority, authorization policies, policy packs and policy suggestions from observed behavior, risk scoring, single-use approvals, approval oversight, containment and the kill switch, coding-agent enforcement and the external authorization decision point | | ✓ (10 agents) | ✓ (unlimited) |
 | MCP tool-definition pinning with drift alerts and held calls | | | ✓ |
 | Tamper-evident action ledger with signed evidence bundles | | ✓ | ✓ |
 | ID-JAG / Enterprise-Managed Authorization token exchange | | ✓ | ✓ |
 | Governed MCP gateway | | ✓ | ✓ |
 | Agent-to-agent delegation | | | ✓ |
-| Signed calls to downstream servers and the agent permission graph | | | ✓ |
+| Signed calls to downstream servers and the who-can-do-what view | | | ✓ |
 | Single sign-on (OIDC), directory sync (Entra ID, Okta, any SCIM 2.0 directory) and business record connectors | | | ✓ |
 | EU AI Act compliance reports, audit log export, S3 and GCS exports | | | ✓ |
 | SIEM export to Splunk and Microsoft Sentinel (OCSF-shaped) | | | ✓ |
+| Anchored evidence, auditor packs and read-only auditor tokens | | | ✓ |
 
 ## Limits
 

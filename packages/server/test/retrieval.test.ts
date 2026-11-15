@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Run } from "../src/core/domain";
-import { bearer, createTestApp, seedSession } from "./helpers";
+import { bearer, createTestApp, expectSpaShell, seedSession } from "./helpers";
 
 test("proxy captures retrieval docs, strips them from the upstream body, and renders them", async () => {
   let upstreamBody: Record<string, unknown> = {};
@@ -54,9 +54,12 @@ test("proxy captures retrieval docs, strips them from the upstream body, and ren
 
     const detail = await ctx.app.inject({ method: "GET", url: `/ui/runs/${runs[0].id}`, headers: bearer(key) });
     expect(detail.statusCode).toBe(200);
-    expect(detail.body).toContain("Retrieved context");
-    expect(detail.body).toContain("Refunds are accepted within 14 days.");
-    expect(detail.body).toContain("policy.md");
+    expectSpaShell(detail.body);
+    // The panel is client-side; the stored docs are asserted above and served
+    // by the run API.
+    const api = await ctx.app.inject({ method: "GET", url: `/api/runs/${runs[0].id}`, headers: bearer(key) });
+    expect(api.body).toContain("Refunds are accepted within 14 days.");
+    expect(api.body).toContain("policy.md");
   } finally {
     upstream.stop(true);
     await ctx.cleanup();
@@ -147,8 +150,10 @@ test("ingest stores retrieval docs and strips them from the logged body", async 
       url: `/ui/runs/${byModel.get("gpt-4o-mini")!.id}`,
       headers: bearer(session.key),
     });
-    expect(detail.body).toContain("Retrieved context");
-    expect(detail.body).toContain("explicit chunk");
+    expect(detail.statusCode).toBe(200);
+    expectSpaShell(detail.body);
+    const api = await ctx.app.inject({ method: "GET", url: `/api/runs/${byModel.get("gpt-4o-mini")!.id}`, headers: bearer(session.key) });
+    expect(api.body).toContain("explicit chunk");
   } finally {
     await ctx.cleanup();
   }

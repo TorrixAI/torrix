@@ -1,6 +1,6 @@
 import type { DbClient } from "../db/client";
-import { insertRow, sqlAll, sqlGet, updateById } from "../db/sql";
-import type { JudgeSettings, RunJudgment } from "../core/domain";
+import { insertRow, sqlAll, sqlGet, sqlRun, updateById } from "../db/sql";
+import type { JudgeSettings, RunJudgment, TraceJudgment } from "../core/domain";
 import type { JudgeRepository } from "../core/ports";
 
 export function createJudgeRepository(db: DbClient): JudgeRepository {
@@ -46,10 +46,45 @@ export function createJudgeRepository(db: DbClient): JudgeRepository {
     async sumCostSince(userId: string, sinceIso: string): Promise<number> {
       const row = await sqlGet<{ c: number }>(
         db.engine,
-        "SELECT COALESCE(SUM(cost_usd), 0) AS c FROM run_judgments WHERE user_id = ? AND created_at >= ?",
-        [userId, sinceIso],
+        "SELECT COALESCE((SELECT SUM(cost_usd) FROM run_judgments WHERE user_id = ? AND created_at >= ?), 0) + COALESCE((SELECT SUM(cost_usd) FROM trace_judgments WHERE user_id = ? AND created_at >= ?), 0) AS c",
+        [userId, sinceIso, userId, sinceIso],
       );
       return Number(row?.c ?? 0);
+    },
+
+    async getTraceJudgment(userId: string, traceId: string): Promise<TraceJudgment | null> {
+      return (await sqlGet<TraceJudgment>(db.engine, "SELECT * FROM trace_judgments WHERE user_id = ? AND trace_id = ? LIMIT 1", [userId, traceId])) ?? null;
+    },
+
+    async listTraceJudgments(userId: string, traceIds: string[]): Promise<TraceJudgment[]> {
+      const ids = [...new Set(traceIds.filter(Boolean))];
+      if (!ids.length) return [];
+      return sqlAll<TraceJudgment>(
+        db.engine,
+        `SELECT * FROM trace_judgments WHERE user_id = ? AND trace_id IN (${ids.map(() => "?").join(", ")})`,
+        [userId, ...ids],
+      );
+    },
+
+    async saveTraceJudgment(judgment: TraceJudgment): Promise<void> {
+      await sqlRun(
+        db.engine,
+        `INSERT INTO trace_judgments
+          (id, user_id, trace_id, score, reason, confidence, first_failing_run_id, provider, model, criteria, input_tokens, output_tokens, cost_usd, raw, error, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, trace_id) DO UPDATE SET
+          score = excluded.score, reason = excluded.reason, confidence = excluded.confidence,
+          first_failing_run_id = excluded.first_failing_run_id, provider = excluded.provider,
+          model = excluded.model, criteria = excluded.criteria, input_tokens = excluded.input_tokens,
+          output_tokens = excluded.output_tokens, cost_usd = excluded.cost_usd, raw = excluded.raw,
+          error = excluded.error, created_at = excluded.created_at`,
+        [
+          judgment.id, judgment.user_id, judgment.trace_id, judgment.score, judgment.reason,
+          judgment.confidence, judgment.first_failing_run_id, judgment.provider, judgment.model,
+          judgment.criteria, judgment.input_tokens, judgment.output_tokens, judgment.cost_usd,
+          judgment.raw, judgment.error, judgment.created_at,
+        ],
+      );
     },
   };
 }

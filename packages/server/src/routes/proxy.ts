@@ -51,6 +51,11 @@ const BLOCKED_FORWARD_HEADERS = new Set([
   "host",
   "authorization",
   "x-upstream-authorization",
+  // The console authenticates /proxy with a cookie holding the Torrix API key
+  // itself; forwarding it would hand that key to every upstream provider.
+  "cookie",
+  "set-cookie",
+  "x-target-url",
   "content-length",
   "transfer-encoding",
   "connection",
@@ -809,7 +814,7 @@ function buildForwardHeaders(headers: Record<string, unknown>): Headers {
     if (BLOCKED_FORWARD_HEADERS.has(lower)) {
       continue;
     }
-    if (lower.startsWith("x-torrix-") || lower.startsWith("helicone-")) {
+    if (lower.startsWith("x-torrix-") || lower.startsWith("helicone-") || lower.startsWith("x-upstream-")) {
       continue;
     }
     if (value === undefined) {

@@ -1,0 +1,58 @@
+/* Login — post-utilities overrides. */
+.lg-shell{min-height:100vh;display:flex;background:transparent}
+.lg-hero{flex:1.05;min-width:0;display:none;border-right:1px solid var(--side-line);position:relative;overflow:hidden;
+  background:
+    radial-gradient(760px 420px at 88% -14%,var(--wash),transparent 62%),
+    radial-gradient(620px 420px at -8% 112%,var(--wash-2),transparent 60%),
+    var(--side-bg)}
+.lg-hero::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:radial-gradient(1.2px 1.2px at 28px 28px,rgba(21,22,26,.12) 50%,transparent 51%);
+  background-size:56px 56px;
+  mask-image:radial-gradient(760px 540px at 58% 30%,#000 32%,transparent 78%)}
+.lg-hero-inner{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;padding:40px 48px}
+.lg-brand{display:flex;align-items:center;gap:11px}
+.lg-brand .brand-mark{width:36px;height:36px;color:var(--ink)}
+.lg-brand .word{font-family:var(--display);font-size:20px;font-weight:600;letter-spacing:-.018em;color:var(--side-brand-text)}
+.lg-hero-mid{max-width:440px;margin:auto 0;padding:52px 0 36px}
+.lg-hero-mid h1{font-family:var(--display);font-size:36px;line-height:1.14;letter-spacing:-.028em;margin:0 0 16px;font-weight:600;color:var(--heading)}
+.lg-acc{color:var(--text-3);text-decoration:none}
+.lg-lead{color:var(--side-text-2);font-size:15px;line-height:1.65;margin:0 0 26px;max-width:420px}
+.lg-points{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--sp-3)}
+.lg-points li{display:flex;gap:10px;align-items:center;color:var(--side-text);font-size:13.5px}
+.lg-points li svg{width:16px;height:16px;color:var(--brand-text);flex:0 0 16px}
+.lg-signal{margin:0 0 40px;max-width:420px}
+.lg-hero-foot{color:var(--side-text-3);font-family:var(--sans);font-size:11px;display:flex;align-items:center;gap:10px;margin-top:auto}
+.lg-hero-foot::before{content:"";width:14px;height:1px;background:var(--text-3);flex:0 0 14px}
+.lg-main{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 44px}
+.lg-card{width:100%;max-width:400px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-xl);padding:28px;box-shadow:var(--shadow)}
+.lg-card-head{display:flex;align-items:center;gap:11px;margin-bottom:6px}
+.lg-card-head .brand-mark{width:28px;height:28px;color:var(--ink)}
+.lg-card-head .word{font-family:var(--display);font-size:18px;font-weight:600;letter-spacing:-.018em;color:var(--heading)}
+.lg-card-tag{color:var(--text-3);font-size:13px;margin:0 0 22px}
+.lg-tabs{margin-bottom:20px}
+.lg-field{position:relative}
+.lg-eye{position:absolute;right:5px;top:50%;transform:translateY(-50%);background:transparent;border:0;color:var(--text-3);padding:7px;border-radius:4px;cursor:pointer}
+.lg-eye:hover{color:var(--text-2);background:var(--surface-2)}
+.lg-eye svg{width:17px;height:17px;display:block}
+.lg-card label{display:block;font-family:var(--sans);font-size:11px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text-3);margin:15px 0 7px}
+.lg-card .lg-field input{font:inherit}
+.lg-card .lg-field ::placeholder{font:inherit}
+.lg-hint{font-size:12.5px;color:var(--text-3);margin:var(--sp-3) 0 0;line-height:1.6}
+.lg-btn{width:100%;height:36px;margin-top:16px;border-radius:var(--r);padding:0 12px;font-family:var(--display);font-size:13.5px;font-weight:600;border:1px solid transparent;
+  color:var(--on-brand);background:var(--brand-fill);transition:filter .12s;cursor:pointer}
+.lg-btn:hover{filter:brightness(1.06);color:var(--on-brand)}
+.lg-btn:disabled{opacity:.6;cursor:default;filter:none}
+.lg-btn.ghost{background:var(--surface);color:var(--text-2);border-color:var(--line-2)}
+.lg-btn.ghost:hover{background:var(--surface-2);color:var(--text);filter:none}
+.lg-foot{margin-top:24px;text-align:center;font-family:var(--sans);font-size:11px;color:var(--text-3)}
+.lg-theme{position:fixed;top:18px;right:18px;z-index:5}
+@media(width >= 940px){
+.lg-hero{display:flex}
+.lg-card-head{display:none}
+}
+@media(prefers-reduced-motion:reduce){
+.lg-signal{display:none}
+}
+.lg-lead a{color:var(--brand-text)}
+.lg-points li svg{color:var(--text-2)}

@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import type { Run } from "../src/core/domain";
-import { bearer, createTestApp, seedSession, type TestApp } from "./helpers";
+import { bearer, createTestApp, expectSpaShell, seedSession, type TestApp } from "./helpers";
+
+// Project scoping is a server contract now that the console is a React SPA: the
+// SPA sends ?project=, the API resolves it (or the sticky cookie) and echoes it
+// back in the payload each page renders.
 
 async function seedProject(ctx: TestApp, userId: string, name: string): Promise<string> {
   const id = crypto.randomUUID();
@@ -40,27 +44,35 @@ test("the cost page scopes to one project and lists member projects", async () =
     await ctx.repos.projects.addMember(shared, session.user.id, "viewer");
     await seedRun(ctx, other.user.id, shared, 0.75);
 
-    const all = await ctx.app.inject({ method: "GET", url: "/ui/cost", headers: bearer(session.key) });
+    const all = await ctx.app.inject({ method: "GET", url: "/api/cost/settings", headers: bearer(session.key) });
     expect(all.statusCode).toBe(200);
-    expect(all.body).toContain('id="co-project"');
-    expect(all.body).toContain("Alpha");
-    expect(all.body).toContain("Beta");
-    expect(all.body).toContain("Shared");
-    expect(all.body).toContain("Account (all projects)");
-    expect(all.body).toContain("every project on this account in one table");
+    const allBody = all.json() as {
+      selected: unknown;
+      projects: Array<{ id: string; name: string }>;
+      usage: Array<{ scope: string; name: string }>;
+    };
+    expect(allBody.selected).toBeNull();
+    expect(allBody.projects.map((entry) => entry.name).sort()).toEqual(["Alpha", "Beta", "Shared"]);
+    expect(allBody.usage.map((row) => row.name)).toContain("Account (all projects)");
 
-    const scoped = await ctx.app.inject({ method: "GET", url: `/ui/cost?project=${alpha}`, headers: bearer(session.key) });
+    const scoped = await ctx.app.inject({ method: "GET", url: `/api/cost/settings?project=${alpha}`, headers: bearer(session.key) });
     expect(scoped.statusCode).toBe(200);
-    expect(scoped.body).toContain("scoped to Alpha");
-    expect(scoped.body).toContain("1.5");
-    expect(scoped.body).toContain(`/ui/runs?project=${alpha}`);
-    expect(scoped.body).toContain(`/ui/analytics?project=${alpha}`);
-    expect(scoped.body).toContain("project budget");
-    expect(scoped.body).not.toContain("Account (all projects)");
+    expect(String(scoped.headers["set-cookie"])).toContain(`torrix_project=${alpha}`);
+    const scopedBody = scoped.json() as {
+      selected: { id: string; name: string; budget_usd: number | null };
+      selected_spend: number;
+      usage: Array<{ scope: string; name: string }>;
+    };
+    expect(scopedBody.selected).toMatchObject({ id: alpha, name: "Alpha", budget_usd: null });
+    expect(scopedBody.selected_spend).toBeCloseTo(1.5, 5);
+    expect(scopedBody.usage.map((row) => row.name)).not.toContain("Account (all projects)");
+    expect(scopedBody.usage.map((row) => row.name)).toContain("Alpha");
 
-    const unknown = await ctx.app.inject({ method: "GET", url: `/ui/cost?project=${crypto.randomUUID()}`, headers: bearer(session.key) });
+    const unknown = await ctx.app.inject({ method: "GET", url: `/api/cost/settings?project=${crypto.randomUUID()}`, headers: bearer(session.key) });
     expect(unknown.statusCode).toBe(200);
-    expect(unknown.body).toContain("every project on this account in one table");
+    expect((unknown.json() as { selected: unknown }).selected).toBeNull();
+    const page = await ctx.app.inject({ method: "GET", url: `/ui/cost?project=${alpha}`, headers: bearer(session.key) });
+    expectSpaShell(page.body);
   } finally {
     await ctx.cleanup();
   }
@@ -75,17 +87,25 @@ test("the team page shows an admin all-projects spend table", async () => {
     const owned = await seedProject(ctx, member.user.id, "Member project");
     await seedRun(ctx, member.user.id, owned, 2.5);
 
-    const adminPage = await ctx.app.inject({ method: "GET", url: "/ui/team", headers: bearer(admin.key) });
-    expect(adminPage.statusCode).toBe(200);
-    expect(adminPage.body).toContain("All projects (admin)");
-    expect(adminPage.body).toContain("Member project");
-    expect(adminPage.body).toContain("member@test.local");
-    expect(adminPage.body).toContain("2.5");
-    expect(adminPage.body).toContain(`/ui/runs?project=${owned}`);
+    const adminRes = await ctx.app.inject({ method: "GET", url: "/api/team", headers: bearer(admin.key) });
+    expect(adminRes.statusCode).toBe(200);
+    const adminBody = adminRes.json() as {
+      is_admin: boolean;
+      projects: Array<{ name: string; role: string }>;
+      users: Array<{ email: string }>;
+      admin_projects: Array<{ id: string; name: string; owner_email: string | null; runs: number; spend: number }>;
+    };
+    expect(adminBody.is_admin).toBe(true);
+    expect(adminBody.users.map((user) => user.email)).toContain("member@test.local");
+    expect(adminBody.admin_projects.find((row) => row.id === owned)).toMatchObject({ name: "Member project", owner_email: "member@test.local", runs: 1 });
+    expect(adminBody.admin_projects.find((row) => row.id === owned)?.spend).toBeCloseTo(2.5, 5);
 
-    const memberPage = await ctx.app.inject({ method: "GET", url: "/ui/team", headers: bearer(member.key) });
-    expect(memberPage.statusCode).toBe(200);
-    expect(memberPage.body).not.toContain("All projects (admin)");
+    const memberRes = await ctx.app.inject({ method: "GET", url: "/api/team", headers: bearer(member.key) });
+    expect(memberRes.statusCode).toBe(200);
+    const memberBody = memberRes.json() as { is_admin: boolean; admin_projects: unknown[]; projects: Array<{ name: string }> };
+    expect(memberBody.is_admin).toBe(false);
+    expect(memberBody.admin_projects).toHaveLength(0);
+    expect(memberBody.projects.map((project) => project.name)).toContain("Member project");
   } finally {
     await ctx.cleanup();
   }
@@ -98,13 +118,13 @@ test("the dashboard header names the scoped project", async () => {
     const project = await seedProject(ctx, session.user.id, "Scoped project");
     await seedRun(ctx, session.user.id, project, 0.5);
 
-    const all = await ctx.app.inject({ method: "GET", url: "/ui/dashboard", headers: bearer(session.key) });
+    const all = await ctx.app.inject({ method: "GET", url: "/api/dashboard", headers: bearer(session.key) });
     expect(all.statusCode).toBe(200);
-    expect(all.body).toContain("all projects");
+    expect((all.json() as { project_name: string | null }).project_name).toBeNull();
 
-    const scoped = await ctx.app.inject({ method: "GET", url: `/ui/dashboard?project=${project}`, headers: bearer(session.key) });
+    const scoped = await ctx.app.inject({ method: "GET", url: `/api/dashboard?project=${project}`, headers: bearer(session.key) });
     expect(scoped.statusCode).toBe(200);
-    expect(scoped.body).toContain("project Scoped project");
+    expect((scoped.json() as { project_name: string | null }).project_name).toBe("Scoped project");
   } finally {
     await ctx.cleanup();
   }
@@ -120,54 +140,47 @@ test("the project scope sticks across pages through the cookie", async () => {
     await seedRun(ctx, session.user.id, beta, 0.25, "beta run", { trace_id: "trc-beta", session_id: "ses-beta", agent_name: "beta-agent" });
 
     // Picking a project sets the sticky cookie.
-    const setScope = await ctx.app.inject({ method: "GET", url: `/ui/dashboard?project=${alpha}`, headers: bearer(session.key) });
+    const setScope = await ctx.app.inject({ method: "GET", url: `/api/dashboard?project=${alpha}`, headers: bearer(session.key) });
     expect(setScope.statusCode).toBe(200);
     expect(String(setScope.headers["set-cookie"])).toContain(`torrix_project=${alpha}`);
-    expect(setScope.body).toContain("project Alpha");
 
-    // Every project-aware page follows the cookie without a query param.
+    // Every project-aware endpoint follows the cookie without a query param.
     const cookie = { ...bearer(session.key), cookie: `torrix_project=${alpha}` };
-    const dashboard = await ctx.app.inject({ method: "GET", url: "/ui/dashboard", headers: cookie });
-    expect(dashboard.body).toContain("project Alpha");
-    const runs = await ctx.app.inject({ method: "GET", url: "/ui/runs", headers: cookie });
-    expect(runs.body).toContain("alpha run");
-    expect(runs.body).not.toContain("beta run");
-    expect(runs.body).toContain("$1.5");
-    expect(runs.body).not.toContain("$1.75");
-    const analytics = await ctx.app.inject({ method: "GET", url: "/ui/analytics", headers: cookie });
-    expect(analytics.body).toContain("project Alpha");
-    const cost = await ctx.app.inject({ method: "GET", url: "/ui/cost", headers: cookie });
-    expect(cost.body).toContain("scoped to Alpha");
-    const traces = await ctx.app.inject({ method: "GET", url: "/ui/traces", headers: cookie });
-    expect(traces.body).toContain("Project Alpha");
-    expect(traces.body).toContain("trc-alpha");
-    expect(traces.body).not.toContain("trc-beta");
-    const agents = await ctx.app.inject({ method: "GET", url: "/ui/agents/observed", headers: cookie });
-    expect(agents.body).toContain("alpha-agent");
-    expect(agents.body).not.toContain("beta-agent");
-    const live = await ctx.app.inject({ method: "GET", url: "/ui/live", headers: cookie });
-    expect(live.body).toContain("project Alpha");
-    expect(live.body).toContain(`var scope=${JSON.stringify(alpha)}`);
-    const insights = await ctx.app.inject({ method: "GET", url: "/ui/insights", headers: cookie });
-    expect(insights.body).toContain("Project Alpha");
+    const dashboard = await ctx.app.inject({ method: "GET", url: "/api/dashboard", headers: cookie });
+    expect((dashboard.json() as { project_name: string | null }).project_name).toBe("Alpha");
+
+    const runs = await ctx.app.inject({ method: "GET", url: "/api/runs", headers: cookie });
+    const runBody = runs.json() as { runs: Array<{ name: string }>; total: number; summary: { traces: number } };
+    expect(runBody.runs.map((run) => run.name)).toContain("alpha run");
+    expect(runBody.runs.map((run) => run.name)).not.toContain("beta run");
+    expect(runBody.total).toBe(1);
+    expect(runBody.summary.traces).toBe(1);
+
+    const analytics = await ctx.app.inject({ method: "GET", url: "/api/analytics/leaderboard", headers: cookie });
+    expect(analytics.statusCode).toBe(200);
+
+    const cost = await ctx.app.inject({ method: "GET", url: "/api/cost/settings", headers: cookie });
+    expect((cost.json() as { selected: { name: string } | null }).selected?.name).toBe("Alpha");
+
+    const traces = await ctx.app.inject({ method: "GET", url: "/api/traces", headers: cookie });
+    const traceBody = traces.json() as { traces: Array<{ id: string }> };
+    expect(traceBody.traces.map((group) => group.id)).toContain("trc-alpha");
+    expect(traceBody.traces.map((group) => group.id)).not.toContain("trc-beta");
+
+    const agents = await ctx.app.inject({ method: "GET", url: "/api/v1/observed-agents", headers: cookie });
+    const agentBody = agents.json() as { agents: Array<{ name: string }> };
+    expect(agentBody.agents.map((agent) => agent.name)).toContain("alpha-agent");
+    expect(agentBody.agents.map((agent) => agent.name)).not.toContain("beta-agent");
+
     const report = await ctx.app.inject({ method: "GET", url: "/api/insights/generate", headers: cookie });
     expect(report.statusCode).toBe(200);
     expect(report.json().spendUsd).toBeCloseTo(1.5, 5);
     expect(report.json().runs).toBe(1);
 
     // An explicit empty param means all projects and clears the cookie.
-    const cleared = await ctx.app.inject({ method: "GET", url: "/ui/dashboard?project=", headers: cookie });
-    expect(cleared.body).toContain("all projects");
+    const cleared = await ctx.app.inject({ method: "GET", url: "/api/dashboard?project=", headers: cookie });
+    expect((cleared.json() as { project_name: string | null }).project_name).toBeNull();
     expect(String(cleared.headers["set-cookie"])).toContain("torrix_project=;");
-
-    // An explicit project wins over the cookie and re-sets it.
-    const override = await ctx.app.inject({ method: "GET", url: `/ui/dashboard?project=${beta}`, headers: cookie });
-    expect(override.body).toContain("project Beta");
-    expect(String(override.headers["set-cookie"])).toContain(`torrix_project=${beta}`);
-
-    // An unknown project id falls back to all projects.
-    const unknown = await ctx.app.inject({ method: "GET", url: "/ui/dashboard?project=nope", headers: cookie });
-    expect(unknown.body).toContain("all projects");
   } finally {
     await ctx.cleanup();
   }

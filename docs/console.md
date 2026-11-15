@@ -7,7 +7,9 @@ is a tour of what each screen does. For what the data means, read
 
 ## The shell
 
-- The sidebar groups pages into **Observability**, **Management** and **System**.
+- The sidebar groups pages into **Observability**, **Build**, **Agents**, **Governance**,
+  **Workspace** and **System**. **Agents** expands to the registry, observed agents, delegations,
+  authorization policies, approvals, activity, MCP servers and who can do what.
 - The search box in the topbar, or Ctrl/Cmd+K, opens the command palette: jump to any page, or
   search runs by name, model or metadata.
 - The theme toggle switches between the light and dark console and remembers your choice.
@@ -44,10 +46,15 @@ The main list, newest first by default.
 - Filters: score (good, bad, unscored), flagged, anomalies, review state, model, provider, source,
   agent, end user, tag and free-text search; project chips switch scope.
 - Sort by newest, cost, latency or tokens, ascending or descending.
-- Bulk actions on a selection: mark good or bad, judge (paid), delete, compare.
+- Bulk actions on a selection: mark good or bad, judge (paid), delete, compare. The header checkbox
+  selects the visible page (up to 500 runs); **Select all matching** applies the current filters.
 - Export as CSV, NDJSON, OpenAI fine-tune JSONL or small-model JSONL.
 - **Group by session or trace**: the server pages by group, so each header carries whole-group
-  totals (runs, agents, subagents, cost, tokens, errors, span) even when a group is large.
+  totals (runs, agents, subagents, cost, tokens, errors, span) even when a group is large. Trace
+  groups have a checkbox, a Good/Bad chip, the reason on hover and a first failing step link.
+- **Judge traces**: selecting trace groups and choosing **Judge selected** judges one trace per
+  call. The estimate appears before starting; progress, Stop and a final good/bad/failed summary
+  stay in the selection bar. Jobs cap at 200 traces and skip traces already judged.
 - Each row shows the agent chip, session and trace links, and markers for child runs, tool calls and
   reasoning.
 
@@ -59,7 +66,10 @@ execution, including the subagent runs it spawns).
 - Single-run groups are hidden by default, with a toggle to show them. There is a text filter over
   id, agents and prompt, and an errors-only filter.
 - Columns: last activity, prompt excerpt, root agent, agents, runs, subagents, duration, cost and
-  errors.
+  errors. Low-priority columns hide below 1500 px, and wide tables keep the first column visible
+  with a scroll cue.
+- Trace rows carry a step label from the first tool call (`Edit packages/...`, `Bash bun test`),
+  with `Answer` and `Thinking` when a run has no tool call.
 
 Opening a trace or session gives you a drill-in with two views:
 
@@ -82,7 +92,9 @@ configured judge model to explain the trace: flow, cost drivers, errors and impr
 
 - A breadcrumb from the root run to this one, and **Previous** / **Next** to step through the trace
   in order.
-- Prompt, response, reasoning and tool call panels, plus retrieved context and media when present.
+- A **Conversation** panel with the parsed prompt and answer, then reasoning and tool calls, plus
+  retrieved context and media when present. Raw request and response JSON sit in collapsed panels,
+  and the metadata grid only shows fields that are set.
 - Score, notes, golden flag, share links, replay, compare, cost comparison and **Open in
   Playground**.
 - The subagent runs table lists child calls.
@@ -103,12 +115,17 @@ with that filter applied.
 Month-to-date spend and limits, with a **View** selector:
 
 - **All projects**: one table with the account row, one row per project and one row per API key,
-  each with its spend and inline budget and hard-cap editors.
+  each with its spend and inline budget and hard-cap editors. API keys with no spend and no limit
+  are hidden until **Show unused keys** is ticked.
 - **One project**: that project's spend, limits and the API keys scoped to it, with links to its
   runs and analytics.
 
+Prompt compression now lives in its own **Project settings** panel, not in the spend table. Spend
+shows two decimals at or above $1 and four decimals below $1.
+
 Below the table: alert channels (webhook, Slack, PagerDuty, email), the weekly digest button and
-custom pricing overrides.
+custom pricing overrides. A browser reuses its existing session key on sign-in instead of adding
+a new one; the key name carries the date it was created.
 
 ## Insights
 
@@ -122,7 +139,7 @@ and small-model routing. It follows the project scope, and **Generate now** refr
 - **Registry**: agents with an identity, credentials and delegated authority. This is part of the
   paid agent control plane; see [Pro and Enterprise features](pro-and-enterprise.md).
 
-## Management and system pages
+## Build, workspace and system pages
 
 - **Prompts**: a versioned prompt library. The proxy can render a stored prompt for any
   OpenAI-shaped request through the `x-torrix-prompt` header or a `prompt` body field.
@@ -135,8 +152,13 @@ and small-model routing. It follows the project scope, and **Generate now** refr
 - **API Keys**: create keys with scopes and per-key budgets or caps. Secrets are shown once.
 - **Integrations**: one card per way to send data (proxy, SDKs, Claude Code, opencode,
   OpenTelemetry, MCP), each with a **Generate key** button and copyable snippets.
-- **Governance**: PII masking in every edition; policies, the review queue, routing rules, SLM
-  signals, the audit log and the AI Act report in paid editions.
+- **Agents** (paid): the sidebar group opens Registry, Observed, Delegations, Authorization
+  policies, Approvals, Activity, MCP servers and Who can do what. The registry shows last activity,
+  actions and denials in the last 7 days, and pending approvals.
+- **Governance**: an overview strip with content-rule hits, pending reviews and PII-masked runs for
+  the last 7 days, plus PII masking in every edition (new instances mask credential shapes by
+  default, with personal-data types opt-in); content rules, review queue, routing rules,
+  SLM signals, the audit log and the AI Act report in paid editions.
 - **Playground**: chat against any provider from the browser. Each turn is logged as a run and
   labelled with the playground source.
 - **SQL console**: admin-only read-only SQL over your runs.

@@ -1,0 +1,21 @@
+/* shadcn/Radix primitive adaptations, loaded last. */
+[data-slot="button"].btn-danger{background:var(--bad-dim)!important;border-color:var(--bad-line)!important;color:var(--bad-strong)!important}
+[data-slot="button"].btn-danger:hover{background:var(--bad-line)!important;border-color:var(--bad-line)!important;color:var(--bad-strong)!important}
+[data-slot="input"]:focus-visible{outline:2px solid var(--focus-outline)!important;outline-offset:2px!important;box-shadow:0 0 0 4px var(--focus-halo)!important}
+@media(width <= 900px){
+.nav-group [data-slot="sidebar-menu"]{flex-direction:row;gap:2px}
+}
+.range [data-slot="toggle-group-item"][data-state="on"]{background:var(--surface-2)!important;color:var(--text)!important;border:1px solid var(--line-2)!important;border-radius:4px!important;font-weight:600!important}
+.runs-toolbar .filter-search [data-slot="input"]{max-width:none!important}
+.filter-field [data-slot="input"]{width:100%!important;max-width:none!important}
+[data-slot="label"]{font:500 12px/1.4 var(--sans)!important;color:var(--text-2)!important;letter-spacing:0!important;text-transform:none!important}
+[data-slot="input"]{max-width:480px}
+[data-slot="select-trigger"]{max-width:480px}
+[data-slot="input"][inputmode="decimal"]{max-width:320px}
+[data-slot="input"][inputmode="numeric"]{max-width:320px}
+.filter-search [data-slot="input"]{max-width:none!important}
+.topbar-search [data-slot="input"]{max-width:none!important}
+@media(width <= 1100px){
+.approvals-table .approval-actions [data-slot="button"]{padding:0 6px!important}
+}
+.db-compare [data-slot="checkbox"]{width:16px;height:16px;flex:0 0 16px}

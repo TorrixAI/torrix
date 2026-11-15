@@ -1,0 +1,11 @@
+/* Insights page rules (pre-utilities). */
+.in-cards{grid-auto-rows:1fr;align-items:stretch}
+.in-card{display:flex;flex-direction:column;min-height:132px}
+.in-card .sub{margin-top:auto;padding-top:8px}
+.in-highlights{padding:14px 18px!important}
+.in-highlights ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.in-highlights li{display:flex;gap:9px;align-items:flex-start;font-size:13px;line-height:1.5;color:var(--text)}
+.in-highlight-dot{width:6px;height:6px;border-radius:50%;margin-top:7px;flex:0 0 6px;background:var(--text-3)}
+.in-highlight-dot.good{background:var(--good)}
+.in-highlight-dot.bad{background:var(--bad)}
+.in-card .lbl{letter-spacing:0}

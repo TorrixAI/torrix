@@ -1,5 +1,5 @@
 import type { DbClient } from "../db/client";
-import { insertRow, sqlAll, sqlGet, updateById } from "../db/sql";
+import { insertRow, sqlAll, sqlGet, sqlRun, updateById } from "../db/sql";
 import type { ApiKeyRepository } from "../core/ports";
 import type { ApiKey } from "../core/domain";
 
@@ -33,6 +33,14 @@ export function createApiKeyRepository(db: DbClient): ApiKeyRepository {
 
     async revoke(id: string): Promise<void> {
       await updateById(db.engine, "api_keys", id, { revoked_at: new Date().toISOString() });
+    },
+
+    async revokeStaleSessions(userId: string, before: string): Promise<void> {
+      await sqlRun(
+        db.engine,
+        "UPDATE api_keys SET revoked_at = ? WHERE user_id = ? AND session = 1 AND revoked_at IS NULL AND COALESCE(last_used_at, created_at) < ?",
+        [new Date().toISOString(), userId, before],
+      );
     },
 
     async updateLimits(id: string, fields: Partial<Pick<ApiKey, "budget_usd" | "hard_cap_usd">>): Promise<void> {

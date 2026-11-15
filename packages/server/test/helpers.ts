@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { expect } from "bun:test";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
 import { loadConfig, parseEdition, type ServerConfig, type TrustedKey } from "../src/core/config";
@@ -130,6 +131,15 @@ export async function seedSession(ctx: TestDb, email = "admin@test.local"): Prom
 
 export function bearer(key: string): Record<string, string> {
   return { authorization: `Bearer ${key}` };
+}
+
+// The console is a React SPA: every /ui page serves the same shell document, so
+// server tests assert on the shell rather than on server-rendered page text. The
+// asset script is required too, so a missing `bun run build` fails the suite
+// instead of quietly serving the "console not built" page.
+export function expectSpaShell(body: string): void {
+  expect(body).toContain('id="root"');
+  expect(body).toMatch(/src="\/assets\/[^"]+\.js"/);
 }
 
 function toBase64Url(bytes: Uint8Array): string {

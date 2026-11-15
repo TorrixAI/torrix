@@ -24,13 +24,15 @@ export function monthStart(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01T00:00:00.000Z`;
 }
 
-export function spendSince(repos: Repositories, userId: string, since: string, scope: "user" | "project" | "api_key" = "user", scopeId?: string): Promise<number> {
+export function spendSince(repos: Repositories, userId: string, since: string, scope: "user" | "project" | "api_key" | "agent" = "user", scopeId?: string): Promise<number> {
   const base = "SELECT COALESCE(SUM(cost_usd), 0) AS total FROM runs WHERE user_id = ? AND created_at >= ?";
   let query = base;
   if (scope === "project") {
     query = `${base} AND project_id = ?`;
   } else if (scope === "api_key") {
     query = `${base} AND api_key_id = ? AND api_key_id IS NOT NULL`;
+  } else if (scope === "agent") {
+    query = `${base} AND agent_id = ? AND agent_id IS NOT NULL`;
   }
   return sqlGet<{ total: number }>(repos.db.engine, query, scopeId ? [userId, since, scopeId] : [userId, since]).then((row) => Number(row?.total ?? 0));
 }

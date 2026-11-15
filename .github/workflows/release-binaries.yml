@@ -56,7 +56,17 @@ jobs:
           curl -fsS http://127.0.0.1:18099/health | grep -q '"name":"Torrix"'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18099/ui/agents)" = "302"
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18099/api/v1/agents)" = "404"
+          curl -fsS http://127.0.0.1:18099/ui/login | grep -q 'id="root"'
+          curl -fsS http://127.0.0.1:18099/ui/login | grep -qE 'src="/assets/[^"]+\.js"'
           ./dist/torrix-linux-x64 --version
+
+      - name: Package the console
+        # The console is a static build the binary reads from `torrix-web/`
+        # beside itself; install.sh unpacks this archive there.
+        run: |
+          mkdir -p package
+          cp -R dist/web package/torrix-web
+          tar -czf dist/torrix-web.tar.gz -C package torrix-web
 
       - name: Checksums
         run: |
@@ -70,6 +80,7 @@ jobs:
           path: |
             dist/torrix-*
             dist/SHA256SUMS
+            dist/torrix-web.tar.gz
           if-no-files-found: error
 
       - name: Attach to the GitHub release
@@ -79,4 +90,4 @@ jobs:
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md for this release."
-          gh release upload "$GITHUB_REF_NAME" dist/torrix-* dist/SHA256SUMS --clobber
+          gh release upload "$GITHUB_REF_NAME" dist/torrix-* dist/SHA256SUMS dist/torrix-web.tar.gz --clobber

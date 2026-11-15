@@ -7,6 +7,7 @@ import type {
   AlertSettings,
   ApiKey,
   Approval,
+  ApprovalSignoff,
   ApprovalState,
   AuditEntry,
   AuthorizationDecisionRecord,
@@ -42,6 +43,7 @@ import type {
   RoutingRule,
   Run,
   RunJudgment,
+  TraceJudgment,
   User,
 } from "./domain";
 
@@ -93,6 +95,8 @@ export interface ApiKeyRepository {
   touchUsage(id: string): Promise<void>;
   listByUser(userId: string): Promise<ApiKey[]>;
   revoke(id: string): Promise<void>;
+  /** Revoke browser session keys idle since `before`; manual keys are untouched. */
+  revokeStaleSessions(userId: string, before: string): Promise<void>;
   updateLimits(id: string, fields: Partial<Pick<ApiKey, "budget_usd" | "hard_cap_usd">>): Promise<void>;
 }
 
@@ -111,6 +115,12 @@ export interface RunRepository {
   dashboardStats(userId: string, filters: DashboardFilters): Promise<DashboardStats>;
   list(userId: string, opts: ListOptions): Promise<{ runs: Run[]; total: number }>;
   listSummary(userId: string, opts: RunListFilters): Promise<RunListSummary>;
+  /** How many matched runs sit in a trace with more than one run. */
+  traceTraffic(userId: string, opts: RunListFilters): Promise<{ total: number; multi: number }>;
+  /** Candidate stored text for credential scanning; callers run the detectors. */
+  findTextMatches(userId: string, since: string, needles: string[], limit: number): Promise<RunTextMatch[]>;
+  /** Seven-day counts for the Governance overview strip. */
+  governanceSummary(userId: string, since: string): Promise<RunGovernanceSummary>;
   deleteMany(userId: string, ids: string[]): Promise<number>;
   updateScoreMany(userId: string, ids: string[], score: number | null, note: string | null, scoredAt: string | null): Promise<number>;
   countChildren(userId: string, parentIds: string[]): Promise<RunChildCount[]>;
@@ -135,6 +145,8 @@ export interface RunRepository {
   /** Earliest root run (no parent) per group, for the traces index columns. */
   listGroupRoots(userId: string, kind: "trace" | "session", groupIds: string[], projectId?: string): Promise<GroupRoot[]>;
   listGroup(userId: string, query: RunGroupQuery): Promise<{ runs: Run[]; total: number }>;
+  /** Totals for every run in a trace or session, independent of pagination. */
+  groupTotals(userId: string, kind: "trace" | "session", id: string): Promise<RunGroupTotals>;
   listByParents(userId: string, parentIds: string[], limit: number): Promise<Run[]>;
   listObservedAgents(userId: string, limit: number, projectId?: string): Promise<ObservedAgent[]>;
   analyticsByModel(userId: string, filter: AnalyticsFilter): Promise<AnalyticsRow[]>;
@@ -236,7 +248,9 @@ export interface DashboardStats {
   avgScore: number | null;
   scoredCount: number;
   previous: DashboardWindow | null;
-  perDay: { date: string; cost: number; runs: number; tokens: number; errors: number; latencyMs: number }[];
+  perDay: { date: string; cost: number; runs: number; tokens: number; errors: number; anomalies: number; latencyMs: number }[];
+  /** Previous window's daily series, aligned by index with perDay. */
+  perDayPrevious: { date: string; cost: number; runs: number; tokens: number; errors: number; anomalies: number; latencyMs: number }[];
   byModel: { model: string; runs: number; cost: number }[];
   bySource: { source: string; runs: number; cost: number }[];
   byAgent: AgentRollup[];
@@ -268,6 +282,8 @@ export interface ListOptions {
   /** When true, search also scans stored request bodies (edition-gated). */
   deepSearch?: boolean;
   anomalyOnly?: boolean;
+  /** Only groups with at least this many matching runs; 2 hides single-run groups. */
+  minRuns?: number;
   /** Sort field: created_at, cost, latency, tokens, score, status, name. */
   sort?: string;
   dir?: "asc" | "desc";
@@ -294,6 +310,22 @@ export interface RunToolEvent {
   createdAt: string;
 }
 
+/** A distinct tool name used by a run, for step filtering. */
+export interface RunToolName {
+  runId: string;
+  name: string;
+}
+
+export interface RunTextMatch {
+  runId: string;
+  text: string;
+}
+
+export interface RunGovernanceSummary {
+  piiMasked: number;
+  policyFlagged: number;
+}
+
 export interface EventRepository {
   add(event: Events): Promise<void>;
   addMany(events: Events[]): Promise<void>;
@@ -302,6 +334,14 @@ export interface EventRepository {
   countByRunIds(runIds: string[]): Promise<RunEventCount[]>;
   /** Tool-call events for a page of runs, oldest first and capped by the caller. */
   listToolEvents(runIds: string[], limit: number): Promise<RunToolEvent[]>;
+  /** The first tool-call event for each run, used to label a step without loading every call. */
+  listFirstToolEvents(runIds: string[]): Promise<RunToolEvent[]>;
+  /** Distinct tool names per run, so a step filter matches more than the first call. */
+  listToolNamesByRunIds(runIds: string[]): Promise<RunToolName[]>;
+  /** The last response event for each run, used for one-line table excerpts. */
+  listLastResponseEvents(runIds: string[]): Promise<RunToolEvent[]>;
+  /** Candidate event text for credential scanning; callers run the detectors. */
+  findTextMatches(userId: string, since: string, needles: string[], limit: number): Promise<RunTextMatch[]>;
 }
 
 export interface InstanceRepository {
@@ -377,6 +417,9 @@ export interface JudgeRepository {
   addJudgment(judgment: RunJudgment): Promise<void>;
   listJudgments(runId: string): Promise<RunJudgment[]>;
   sumCostSince(userId: string, sinceIso: string): Promise<number>;
+  getTraceJudgment(userId: string, traceId: string): Promise<TraceJudgment | null>;
+  listTraceJudgments(userId: string, traceIds: string[]): Promise<TraceJudgment[]>;
+  saveTraceJudgment(judgment: TraceJudgment): Promise<void>;
 }
 
 export interface OnlineEvalRepository {
@@ -470,6 +513,12 @@ export interface TraceGroup {
   lastAt: string;
   models: string[];
   agents: string[];
+  trace_score?: number | null;
+  trace_score_reason?: string | null;
+  first_failing_run_id?: string | null;
+  session_score?: number | null;
+  session_judged?: number;
+  session_good?: number;
 }
 
 /** Earliest root run of a trace/session group; the body is capped at 4 KB in SQL. */
@@ -486,10 +535,24 @@ export interface RunGroupQuery {
   offset: number;
 }
 
+export interface RunGroupTotals {
+  runs: number;
+  agents: number;
+  subagents: number;
+  cost: number;
+  tokens: number;
+  errors: number;
+  firstAt: string | null;
+  lastAt: string | null;
+  maxLatencyMs: number;
+}
+
 export interface AgentRepository {
   listByUser(userId: string): Promise<Agent[]>;
   countByUser(userId: string): Promise<number>;
   countActiveByUser(userId: string): Promise<number>;
+  /** Rollups for the registry table; `since` bounds actions and denials. */
+  activitySummary(userId: string, since: string): Promise<AgentActivity[]>;
   getById(id: string, userId: string): Promise<Agent | null>;
   getBySlug(userId: string, slug: string): Promise<Agent | null>;
   findByExternal(userId: string, provider: string, subject: string): Promise<Agent | null>;
@@ -505,6 +568,14 @@ export interface AgentRepository {
   listTools(agentId: string): Promise<AgentTool[]>;
   addTool(tool: AgentTool): Promise<void>;
   removeTool(id: string, agentId: string): Promise<boolean>;
+}
+
+export interface AgentActivity {
+  agentId: string;
+  lastActiveAt: string | null;
+  actions7d: number;
+  denied7d: number;
+  pendingApprovals: number;
 }
 
 export interface PrincipalRepository {
@@ -593,6 +664,8 @@ export interface AuthorizationRepository {
   listApprovals(userId: string, query: ApprovalQuery): Promise<{ approvals: Approval[]; total: number }>;
   updateApproval(id: string, fields: Partial<Approval>): Promise<void>;
   consumeApproval(id: string): Promise<boolean>;
+  addApprovalSignoff(signoff: ApprovalSignoff): Promise<void>;
+  listApprovalSignoffs(approvalId: string): Promise<ApprovalSignoff[]>;
   expireStaleApprovals(nowIso: string): Promise<number>;
   pendingApprovalRequestIds(): Promise<string[]>;
   deleteOld(userId: string, olderThanDays: number): Promise<number>;

@@ -1,0 +1,20 @@
+/* Overlay component rules. */
+.toast-wrap{position:fixed;right:18px;bottom:18px;z-index:60;display:flex;flex-direction:column;gap:var(--sp-2)}
+.toast{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line-2);border-left:3px solid var(--line-2);
+  border-radius:var(--r-lg);padding:10px 14px;font-size:13px;color:var(--text-2);box-shadow:var(--shadow-md);min-width:220px;max-width:380px}
+.toast.success{border-left-color:var(--good)}
+.toast.error{border-left-color:var(--bad)}
+.toast button{background:transparent;border:0;color:var(--brand-text);font-weight:600;cursor:pointer;font-size:12.5px}
+.cmdk-overlay{position:fixed;inset:0;z-index:70;background:rgba(8,12,22,.45);display:none;align-items:flex-start;justify-content:center;padding-top:12vh}
+.cmdk-overlay.open{display:flex}
+.cmdk{width:min(560px,92vw);background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-md);overflow:hidden}
+.cmdk input[type=text]{width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;color:var(--text);padding:14px 16px;font-size:14px;outline:none;font-family:inherit}
+.cmdk-list{max-height:320px;overflow:auto;padding:6px}
+.cmdk-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--r);color:var(--text-2);cursor:pointer;font-size:13px}
+.cmdk-item.active{background:var(--surface-2);color:var(--text)}
+.cmdk-item:hover{background:var(--surface-2);color:var(--text)}
+.cmdk-item kbd{margin-left:auto;font-family:var(--sans);font-size:11px;color:var(--text-3)}
+.modal-actions{display:flex;justify-content:flex-end;gap:var(--sp-2)}
+form .modal-actions{margin-top:16px}
+.toast button:hover{color:var(--text)}
+.toast button{color:var(--text)}

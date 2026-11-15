@@ -1,9 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ServerConfig } from "../core/config";
 import type { Repositories } from "../repos";
-import { extractBearer, authenticateKey } from "../lib/auth";
+import { extractBearer, authenticateKey, readAuthCookie } from "../lib/auth";
 import { recordAudit, clientIp } from "../lib/audit";
 import { PII_TYPES, parsePiiTypes } from "../lib/pii";
+import { countRunsWithSecrets } from "../lib/secretNotice";
 import type { AuthResult, GovernanceSettings } from "../core/domain";
 
 export interface GovernanceRouteDeps {
@@ -19,7 +20,13 @@ export async function governanceRoute(app: FastifyInstance, deps: GovernanceRout
     reply,
   ) => {
     const key = extractBearer(String((request.headers as Record<string, unknown>).authorization ?? ""));
-    const auth = key ? await authenticateKey(repos.db, key) : null;
+    let auth = key ? await authenticateKey(repos.db, key) : null;
+    if (!auth) {
+      // The console calls these from the browser, so the session cookie has to
+      // authenticate them like every other /api route.
+      const cookieKey = readAuthCookie(request.headers);
+      auth = cookieKey ? await authenticateKey(repos.db, cookieKey) : null;
+    }
     if (!auth) {
       reply.code(401).send({ error: "unauthorized" });
       return null;
@@ -102,5 +109,35 @@ export async function governanceRoute(app: FastifyInstance, deps: GovernanceRout
     const auth = (request as unknown as { auth: AuthResult }).auth;
     const settings = await repos.governance.getSettings(auth.user.id);
     return reply.send({ types: PII_TYPES, configured: parsePiiTypes(settings.pii_types) });
+  });
+
+  app.get("/api/governance/overview", { preHandler: requireUser }, async (request, reply) => {
+    const auth = (request as unknown as { auth: AuthResult }).auth;
+    const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const [policies, reviews, summary] = await Promise.all([
+      repos.governance.listPolicies(auth.user.id),
+      repos.governance.listReviewQueue(auth.user.id, ["pending"], 500),
+      repos.runs.governanceSummary(auth.user.id, since),
+    ]);
+    return reply.send({
+      window_days: 7,
+      overview: {
+        rules: policies.filter((policy) => policy.enabled === 1).length,
+        hits: summary.policyFlagged,
+        reviews: reviews.length,
+        masked: summary.piiMasked,
+      },
+    });
+  });
+
+  // Count only: the value that matched never leaves the detectors. The notice
+  // is shown where an operator can act on it, and only while masking is off.
+  app.get("/api/security/secret-notice", { preHandler: requireUser }, async (request, reply) => {
+    const auth = (request as unknown as { auth: AuthResult }).auth;
+    const settings = await repos.governance.getSettings(auth.user.id);
+    if (settings.pii_enabled) {
+      return reply.send({ count: 0, masking: true });
+    }
+    return reply.send({ count: await countRunsWithSecrets(repos, auth.user.id), masking: false });
   });
 }

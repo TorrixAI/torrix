@@ -10,6 +10,7 @@ Torrix is configured with environment variables. Every one of them is optional.
 | `DB_PATH` | `torrix.sqlite` in the working folder (`packages/server/torrix.sqlite` when run from a source checkout) | SQLite file location |
 | `TORRIX_DATABASE_URL` | none | Postgres connection URL. When set, Postgres is used instead of SQLite |
 | `TORRIX_MEDIA_DIR` | `torrix-media` next to the database | where images and audio attached to runs are stored |
+| `TORRIX_WEB_DIST` | `torrix-web/` or `web/` beside the binary, else `packages/web/dist` in a checkout | where the server reads the console build from. The published image and the release binaries ship it already; set this only if you move the build somewhere else |
 | `TORRIX_OPEN_BROWSER` | `true` | open the console in a browser on start (skipped in Docker and in watch mode) |
 | `DOCKER_CONTAINER` | unset | set to `true` inside containers |
 | `NODE_ENV` | unset | `production` tightens sign-in rate limits |

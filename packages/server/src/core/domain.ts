@@ -40,6 +40,8 @@ export interface ApiKey {
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  /** 1 for a browser sign-in key that should not outlive its session. */
+  session?: number;
   budget_usd?: number | null;
   hard_cap_usd?: number | null;
 }
@@ -322,6 +324,25 @@ export interface RunJudgment {
   created_at: string;
 }
 
+export interface TraceJudgment {
+  id: string;
+  user_id: string;
+  trace_id: string;
+  score: number | null;
+  reason: string | null;
+  confidence: number | null;
+  first_failing_run_id: string | null;
+  provider: string | null;
+  model: string | null;
+  criteria: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number;
+  raw: string | null;
+  error: string | null;
+  created_at: string;
+}
+
 export interface OnlineEvalConfig {
   project_id: string;
   user_id: string;
@@ -387,7 +408,13 @@ export type PiiType =
   | "ipv4"
   | "postal"
   | "passport"
-  | "api_key";
+  | "api_key"
+  | "aws_access_key"
+  | "aws_secret"
+  | "google_api_key"
+  | "private_key"
+  | "jwt"
+  | "bearer_token";
 
 export interface GovernanceSettings {
   user_id: string;
@@ -555,8 +582,22 @@ export interface Agent {
   expires_at: string | null;
   revoked_at: string | null;
   revoked_reason: string | null;
+  frozen?: number | null;
+  frozen_reason?: string | null;
+  frozen_at?: string | null;
+  max_actions_per_minute?: number | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ToolFreeze {
+  id: string;
+  user_id: string;
+  agent_id: string | null;
+  tool_name: string;
+  reason: string | null;
+  created_by_user_id: string | null;
+  created_at: string;
 }
 
 export interface AgentCredential {
@@ -666,6 +707,21 @@ export interface AgentControlSettings {
   approval_webhook_url: string | null;
   webhook_secret: string | null;
   require_grant: number;
+  /** Requests below this risk are allowed without an approval when the override is on. */
+  approval_min_risk: RiskLevel;
+  /** A decision faster than this many seconds counts toward the rubber-stamp flag. */
+  rubber_stamp_seconds: number;
+  /** Approval rate at or above this percentage counts toward the rubber-stamp flag. */
+  rubber_stamp_rate: number;
+  /** Hours between canary approvals. Zero turns automatic injection off. */
+  canary_interval_hours: number;
+  /** Global kill switch: every governed call is denied while this is on. */
+  freeze_all: number;
+  freeze_reason: string | null;
+  freeze_at: string | null;
+  /** Automatic quarantine after this many denials in the window. Zero turns it off. */
+  quarantine_after_denials: number;
+  quarantine_window_minutes: number;
   updated_at: string;
 }
 
@@ -769,6 +825,23 @@ export interface Approval {
   note: string | null;
   consumed_at: string | null;
   decided_at: string | null;
+  created_at: string;
+  /** A known-bad request injected to test whether reviewers catch it. */
+  canary?: number | null;
+  canary_expected?: string | null;
+  canary_outcome?: "caught" | "missed" | null;
+  /** Two-person approvals stay pending until this many distinct reviewers approve. */
+  required_approvals?: number | null;
+  approvals_count?: number | null;
+}
+
+export interface ApprovalSignoff {
+  id: string;
+  approval_id: string;
+  user_id: string;
+  reviewer_user_id: string;
+  decision: "approved" | "rejected";
+  note: string | null;
   created_at: string;
 }
 

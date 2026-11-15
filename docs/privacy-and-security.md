@@ -28,9 +28,11 @@ With telemetry and pricing sync turned off, Torrix makes no outbound calls of it
 
 ## PII masking
 
-Under **Governance**, turn on PII masking to redact personal data before anything is stored. It
-recognizes email addresses, card numbers, social security numbers, IBANs, passport numbers, phone
-numbers, IP addresses, postal codes and API-key-like strings. You choose:
+Under **Governance**, choose what PII masking redacts before anything is stored. It recognizes
+email addresses, card numbers, social security numbers, IBANs, passport numbers, phone numbers,
+IP addresses, postal codes and credential shapes: OpenAI-style `sk-` keys, GitHub tokens
+(`github_pat_`, `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`), AWS access key ids and secret keys, Google
+API keys (`AIza`), private-key blocks, JWTs and `Authorization: Bearer` tokens. You choose:
 
 - which types to mask
 - whether to mask inputs, outputs, or both
@@ -39,6 +41,14 @@ numbers, IP addresses, postal codes and API-key-like strings. You choose:
 If masking is on and no type is selected, every type is masked. Masking applies to stored prompts,
 responses, reasoning, tool calls and the run name (when it is derived from the prompt) on every
 ingestion path. The request your app sends to the provider is not changed.
+
+New instances start with masking on for credential shapes only: API keys, GitHub and OAuth tokens,
+AWS access keys and secrets, Google API keys, private-key blocks, JWTs and bearer tokens. Email,
+phone and the other personal-data types stay off until an admin selects them. Existing instances
+keep the setting they already have; upgrading does not change it. When a credential is found in a
+stored run and masking is off, **Runs** and **Governance** show a dismissible warning with the
+number of affected runs. The warning never prints the value; open the run to review or delete it, or
+turn masking on under **Governance**.
 
 ## Access
 

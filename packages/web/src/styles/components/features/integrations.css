@@ -1,0 +1,16 @@
+/* Integrations page rules (pre-utilities). */
+.int-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-4)}
+.int-lead{margin:0;color:var(--text);font-size:13px;line-height:1.6}
+.int-steps{margin:var(--sp-3) 0 0;padding-left:20px;display:grid;gap:10px;font-size:13px;color:var(--text)}
+.int-steps li::marker{color:var(--text-3);font-family:var(--sans)}
+.int-code{position:relative;margin-top:6px}
+.int-code pre{margin:0;background:var(--surface-2);border:1px solid var(--line);border-left:1px solid var(--line);border-radius:var(--r);padding:10px 40px 10px 12px;font:12px/1.6 var(--sans);color:var(--text-2);white-space:pre-wrap;word-break:break-all}
+.int-code [data-slot=button]{position:absolute;top:6px;right:6px}
+.int-key{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
+.int-keynote{font-size:12px;color:var(--text-3)}
+.int-shell{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px;font-size:12.5px;color:var(--text-2)}
+.int-shell-hint{font-size:12px;color:var(--text-3)}
+@media(width <= 980px){
+.int-grid{grid-template-columns:1fr}
+}
+.int-code pre{font-family:var(--mono)}

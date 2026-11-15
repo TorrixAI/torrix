@@ -1,3 +1,4 @@
+import type { Repositories } from "../repos";
 import type { Run } from "../core/domain";
 
 /** Totals for a node and everything beneath it, so a branch answers "what did this subagent cost". */
@@ -139,4 +140,24 @@ export function buildRunTree(runs: Run[]): RunTree {
     node.subtree = totals;
   }
   return { roots, flat };
+}
+
+export async function collectDescendantRuns(repos: Repositories, userId: string, seed: Run[], max: number): Promise<Run[]> {
+  const found: Run[] = [];
+  const seen = new Set(seed.map((r) => r.id));
+  let frontier = seed.map((r) => r.id);
+  for (let depth = 0; depth < 8 && frontier.length && found.length < max; depth += 1) {
+    const children = await repos.runs.listByParents(userId, frontier, Math.max(1, max - found.length));
+    const next: string[] = [];
+    for (const child of children) {
+      if (seen.has(child.id)) {
+        continue;
+      }
+      seen.add(child.id);
+      found.push(child);
+      next.push(child.id);
+    }
+    frontier = next;
+  }
+  return found;
 }

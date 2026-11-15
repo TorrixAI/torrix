@@ -1,0 +1,12 @@
+/* Activity page rules (pre-utilities). */
+@media(width <= 1300px){
+.activity-table{table-layout:auto!important}
+.activity-table colgroup{display:none}
+.activity-table th:nth-child(4){display:none}
+.activity-table td:nth-child(4){display:none}
+.activity-table th{padding-left:8px!important;padding-right:8px!important}
+.activity-table td{padding-left:8px!important;padding-right:8px!important}
+.activity-table td:nth-child(2){max-width:220px;overflow:hidden}
+.activity-table td:nth-child(2) .tcell-primary{display:block;max-width:204px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-table td:nth-child(2) .tcell-sub{display:block;max-width:204px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}

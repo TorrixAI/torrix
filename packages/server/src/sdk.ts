@@ -17,7 +17,6 @@ export {
   type TorrixExtension,
   type TraceAnnotation,
   type TraceAnnotationInput,
-  type UiSlotInput,
 } from "./core/extensions";
 export {
   EDITION_CONFIG,
@@ -35,6 +34,7 @@ export type { MigrationDirs, MigrationFiles } from "./db/migrate";
 export type { DbClient } from "./db/client";
 export { sqlAll, sqlGet, sqlRun } from "./db/sql";
 export type { AuthorizationJoin, InstanceRepository } from "./core/ports";
+export type { AgentActivity } from "./core/ports";
 export type { Repositories } from "./repos";
 export type {
   Agent,
@@ -43,6 +43,7 @@ export type {
   AgentPermission,
   AgentStatus,
   Approval,
+  ApprovalSignoff,
   AuditEntry,
   AuthResult,
   AuthorizationDecisionRecord,
@@ -92,6 +93,8 @@ export type {
   Run,
   RunData,
   RunJudgment,
+  ToolFreeze,
+  TraceJudgment,
 } from "./core/domain";
 export { clientIp, recordAudit, recordAuditSafe } from "./lib/audit";
 export {
@@ -108,6 +111,7 @@ export { monthStart, spendSince, evaluateRunCost } from "./lib/costGate";
 export { scoreWithCascade, type EvalDeps } from "./lib/evalRunner";
 export { emitEval, emitRun } from "./lib/events";
 export { extractUserPrompt } from "./lib/extract";
+export { buildTraceDigestFromRuns, loadTraceDigest, type TraceDigest, type TraceStepDigest } from "./lib/insights";
 export {
   dispatchEmailGateway,
   dispatchPagerDuty,
@@ -125,21 +129,5 @@ export { recommendSavings } from "./lib/savings";
 export { decryptSecret, encryptSecret, reencryptSecret, secretsEncrypted } from "./lib/secrets";
 export type { SecretReencryptResult } from "./lib/secrets";
 export { checkForUpdate } from "./lib/updateCheck";
-export { agentTabs } from "./routes/agents";
 export { lockedFeature, lockedFeatures, type LockedFeature } from "./core/lockedFeatures";
 export { assertOutboundAllowed, guardedFetch, OutboundBlockedError, outboundPolicy, type OutboundPolicy } from "./lib/outbound";
-export {
-  GOVERNANCE_STYLE,
-  backLink,
-  emptyState,
-  escapeHtml,
-  fmtMs,
-  fmtTokens,
-  fmtUsd,
-  lockedPanel,
-  relTime,
-  shell,
-  shortDate,
-  treeAgentChip,
-  truncate,
-} from "./routes/ui";

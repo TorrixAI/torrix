@@ -1,0 +1,181 @@
+/*
+ * Entry stylesheet for the console.
+ *
+ * Everything is bundled by Vite from here, in this order:
+ *   1. tokens.css      fonts and both palettes (layer: tokens)
+ *   2. base.css        element reset, typography, focus (layer: base)
+ *   3. components/     the design system, one file per owner
+ *   4. utilities.css   shared single-purpose classes
+ *   5. Tailwind        theme (layer) + preflight (base layer) + utilities (unlayered)
+ *   6. features/       page-level rules that must beat the utilities
+ *   7. overrides/      table/global/shadcn adaptations, shadcn last
+ *   8. print.css       print-only evidence views
+ *
+ * Only the foundational tiers are layered. Components, utilities, features and
+ * overrides stay unlayered on purpose: `!important` reverses layer priority, so
+ * moving them into layers before the remaining important declarations are gone
+ * would silently invert the cascade. The import-order test in
+ * packages/server/test/consoleCss.test.ts guards this order.
+ *
+ * Brand vs shadcn accent: the console's signature lime is `--brand` (with
+ * `--brand-fill`, `--brand-text`, `--on-brand`). shadcn reserves `--accent` for
+ * the neutral hover surface, so `bg-accent` stays neutral.
+ */
+@layer theme, tokens, base;
+
+@import "./tokens.css" layer(tokens);
+@import "./base.css" layer(base);
+
+@import "./components/shell.css";
+@import "./components/features/runs.css";
+@import "./components/panel.css";
+@import "./components/tabs.css";
+@import "./components/overlay.css";
+@import "./components/empty.css";
+@import "./components/kpi.css";
+@import "./components/features/live.css";
+@import "./components/table.css";
+@import "./components/badge.css";
+@import "./components/button.css";
+@import "./components/timeline.css";
+@import "./components/forms.css";
+@import "./components/features/integrations.css";
+@import "./components/trace.css";
+@import "./components/features/agents.css";
+@import "./components/features/analytics.css";
+@import "./components/features/login.css";
+@import "./components/features/cost.css";
+@import "./components/features/settings.css";
+@import "./components/features/compliance.css";
+@import "./components/features/insights.css";
+@import "./components/features/playground.css";
+@import "./components/features/activity.css";
+@import "./components/features/governance.css";
+@import "./components/features/traces.css";
+@import "./utilities.css";
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css";
+@import "tw-animate-css";
+
+@import "./features/shell.css";
+@import "./features/integrations.css";
+@import "./overrides/tables.css";
+@import "./features/run-detail.css";
+@import "./features/traces.css";
+@import "./features/tabs.css";
+@import "./features/runs.css";
+@import "./features/misc.css";
+@import "./features/kpi.css";
+@import "./features/overlay.css";
+@import "./features/share.css";
+@import "./features/playground.css";
+@import "./features/insights.css";
+@import "./features/login.css";
+@import "./overrides/global.css";
+@import "./features/approvals.css";
+@import "./features/cost.css";
+@import "./features/settings.css";
+@import "./features/compliance.css";
+@import "./overrides/shadcn.css";
+@import "./print.css";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --primary: var(--brand-fill);
+  --primary-foreground: var(--on-brand);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--text);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--text-3);
+  /* shadcn's `accent` is the subtle hover surface, and the console's brand
+     colour is `--brand`. The two names never overlap, so a shadcn component
+     can use `bg-accent`/`text-accent-foreground` without touching the lime. */
+  --accent: var(--surface-3);
+  --accent-foreground: var(--text);
+  --destructive: var(--bad);
+  --destructive-foreground: #ffffff;
+  --border: var(--line-2);
+  --input: var(--line-2);
+  --ring: var(--brand);
+  --radius: var(--r);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Torrix tokens as first-class utilities: bg-surface, text-text-3, border-line-2… */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-heading: var(--heading);
+  --color-placeholder: var(--placeholder);
+  --color-brand: var(--brand);
+  --color-brand-dim: var(--brand-dim);
+  --color-brand-line: var(--brand-line);
+  --color-brand-text: var(--brand-text);
+  --color-good: var(--good);
+  --color-good-dim: var(--good-dim);
+  --color-good-line: var(--good-line);
+  --color-bad: var(--bad);
+  --color-bad-dim: var(--bad-dim);
+  --color-bad-line: var(--bad-line);
+  --color-warn: var(--warn);
+  --color-warn-dim: var(--warn-dim);
+  --color-warn-line: var(--warn-line);
+  --color-chip-bg: var(--chip-bg);
+  --color-chip-on: var(--chip-on);
+  --color-side-bg: var(--side-bg);
+  --color-side-text: var(--side-text);
+  --color-side-text-2: var(--side-text-2);
+  --color-side-text-3: var(--side-text-3);
+  --color-side-line: var(--side-line);
+  --color-side-hover: var(--side-hover);
+  --color-side-active-bg: var(--side-active-bg);
+  --color-side-active-text: var(--side-active-text);
+  --color-row-hover: var(--row-hover);
+  --color-tooltip-bg: var(--tooltip-bg);
+  --color-tooltip-line: var(--tooltip-line);
+  --color-tooltip-text: var(--tooltip-text);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: var(--radius);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+
+  --font-sans: var(--sans);
+  --font-display: var(--display);
+  --font-mono: var(--mono);
+}

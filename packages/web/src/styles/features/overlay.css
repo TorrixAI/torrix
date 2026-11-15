@@ -1,0 +1,5 @@
+/* Overlay — post-utilities overrides. */
+.cmdk [cmdk-input]{width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;color:var(--text);padding:14px 16px;font-size:14px;outline:none;font-family:inherit}
+.cmdk [cmdk-input]::placeholder{color:var(--placeholder)}
+.cmdk-item[data-selected="true"]{background:var(--surface-2);color:var(--text)}
+.toast button{color:var(--text)}

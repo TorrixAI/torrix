@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
 import type { TorrixExtension } from "../src/core/extensions";
 import { lockedFeatures } from "../src/core/lockedFeatures";
-import { bearer, createTestApp, seedSession } from "./helpers";
+import { bearer, createTestApp, expectSpaShell, seedSession } from "./helpers";
 
+// The console is a React SPA. Gated /ui pages serve the same shell; the React
+// app renders the upgrade card from /api/locked/:feature and /api/config, so
+// these tests assert on those endpoints plus the shell document.
 const uiStub: TorrixExtension = {
   id: "uistub",
   version: "0.0.1",
@@ -22,14 +25,34 @@ test("every catalogued paid feature has an upgrade page", async () => {
   try {
     const session = await seedSession(ctx);
     for (const feature of lockedFeatures()) {
-      const res = await ctx.app.inject({ method: "GET", url: `/ui/locked/${feature.id}`, headers: bearer(session.key) });
-      expect(res.statusCode).toBe(200);
-      expect(res.body).toContain(feature.label);
-      expect(res.body).toContain("Activate a license");
-      expect(res.body).not.toContain("—");
+      const page = await ctx.app.inject({ method: "GET", url: `/ui/locked/${feature.id}`, headers: bearer(session.key) });
+      expect(page.statusCode).toBe(200);
+      expectSpaShell(page.body);
+      const api = await ctx.app.inject({ method: "GET", url: `/api/locked/${feature.id}`, headers: bearer(session.key) });
+      expect(api.statusCode).toBe(200);
+      const info = (api.json() as { feature: { label: string; pitch: string } }).feature;
+      expect(info.label).toBe(feature.label);
+      expect(info.pitch).not.toContain("—");
     }
-    const unknown = await ctx.app.inject({ method: "GET", url: "/ui/locked/nope", headers: bearer(session.key) });
+    const unknown = await ctx.app.inject({ method: "GET", url: "/api/locked/nope", headers: bearer(session.key) });
     expect(unknown.statusCode).toBe(404);
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test("a licensed Community build reports its edition and locked features", async () => {
+  const ctx = await createTestApp({ TORRIX_EDITION: "pro" });
+  try {
+    const session = await seedSession(ctx);
+    const judge = await ctx.app.inject({ method: "GET", url: "/api/locked/judge", headers: bearer(session.key) });
+    expect(judge.statusCode).toBe(200);
+    expect((judge.json() as { feature: { label: string } }).feature.label).toContain("judge");
+    const config = await ctx.app.inject({ method: "GET", url: "/api/config", headers: bearer(session.key) });
+    expect(config.json()).toMatchObject({ edition: "pro" });
+    const page = await ctx.app.inject({ method: "GET", url: "/ui/locked/sso", headers: bearer(session.key) });
+    expect(page.statusCode).toBe(200);
+    expectSpaShell(page.body);
   } finally {
     await ctx.cleanup();
   }
@@ -39,25 +62,32 @@ test("a licensed Community build points to the paid image instead of asking for 
   const ctx = await createTestApp({ TORRIX_EDITION: "pro" });
   try {
     const session = await seedSession(ctx);
-    const res = await ctx.app.inject({ method: "GET", url: "/ui/locked/judge", headers: bearer(session.key) });
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toContain("not in this build");
-    expect(res.body).toContain("keep your data volume and license key");
-    expect(res.body).not.toContain("Activate a license");
-    const enterprise = await ctx.app.inject({ method: "GET", url: "/ui/locked/sso", headers: bearer(session.key) });
-    expect(enterprise.body).toContain("Activate a license");
+    const config = await ctx.app.inject({ method: "GET", url: "/api/config", headers: bearer(session.key) });
+    const body = config.json() as { edition: string; features: string[] };
+    // Licensed Pro, but the paid extension is not installed: the SPA reads these
+    // two fields and renders "not in this build" instead of "Activate a license".
+    expect(body.edition).toBe("pro");
+    expect(body.features).not.toContain("judge");
+    const info = await ctx.app.inject({ method: "GET", url: "/api/locked/judge", headers: bearer(session.key) });
+    expect(info.statusCode).toBe(200);
+    expect((info.json() as { feature: { edition: string } }).feature.edition).toBe("pro");
+    const page = await ctx.app.inject({ method: "GET", url: "/ui/locked/judge", headers: bearer(session.key) });
+    expectSpaShell(page.body);
+    const sso = await ctx.app.inject({ method: "GET", url: "/api/locked/sso", headers: bearer(session.key) });
+    expect((sso.json() as { feature: { edition: string } }).feature.edition).toBe("enterprise");
   } finally {
     await ctx.cleanup();
   }
 });
 
-test("unlicensed extension pages render an upgrade card while APIs answer 402 JSON", async () => {
+test("unlicensed extension pages serve the console while APIs answer 402 JSON", async () => {
   const ctx = await createTestApp({}, { extensions: [uiStub] });
   try {
+    // A gated /ui page serves the SPA shell with 200; the React app shows the
+    // upgrade card. The API still refuses with 402.
     const page = await ctx.app.inject({ method: "GET", url: "/ui/stub-page" });
-    expect(page.statusCode).toBe(402);
-    expect(String(page.headers["content-type"])).toContain("text/html");
-    expect(page.body).toContain("Activate a license");
+    expect(page.statusCode).toBe(200);
+    expectSpaShell(page.body);
 
     const api = await ctx.app.inject({ method: "GET", url: "/api/stub-data" });
     expect(api.statusCode).toBe(402);
@@ -66,8 +96,8 @@ test("unlicensed extension pages render an upgrade card while APIs answer 402 JS
     ctx.config.license.override("pro");
     expect((await ctx.app.inject({ method: "GET", url: "/ui/stub-page" })).body).toContain("real page");
     const sso = await ctx.app.inject({ method: "GET", url: "/ui/stub-sso" });
-    expect(sso.statusCode).toBe(402);
-    expect(sso.body).toContain("Single sign-on");
+    expect(sso.statusCode).toBe(200);
+    expectSpaShell(sso.body);
 
     ctx.config.license.override("enterprise");
     expect((await ctx.app.inject({ method: "GET", url: "/ui/stub-sso" })).body).toContain("sso page");
@@ -82,7 +112,9 @@ test("observed agents stay available in the community edition", async () => {
     const session = await seedSession(ctx);
     const res = await ctx.app.inject({ method: "GET", url: "/ui/agents/observed", headers: bearer(session.key) });
     expect(res.statusCode).toBe(200);
-    expect(res.body).toContain("Observed agents");
+    expectSpaShell(res.body);
+    const api = await ctx.app.inject({ method: "GET", url: "/api/v1/observed-agents", headers: bearer(session.key) });
+    expect(api.statusCode).toBe(200);
   } finally {
     await ctx.cleanup();
   }
@@ -97,12 +129,8 @@ test("community builds offer observed agents only: no registry, agent MCP tools 
     expect(registry.headers.location).toBe("/ui/agents/observed");
 
     const observed = await ctx.app.inject({ method: "GET", url: "/ui/agents/observed", headers: bearer(session.key) });
-    expect(observed.body).toContain('href="/ui/locked/agent-control"');
-    expect(observed.body).toContain('href="/ui/agents/observed"');
-    expect(observed.body).not.toContain("?register=");
-    expect(observed.body).toContain("See what Pro adds");
-    expect(observed.body).toContain("agent governance (10 agents)");
-    expect(observed.body).not.toContain("—");
+    expect(observed.statusCode).toBe(200);
+    expectSpaShell(observed.body);
 
     const tools = await ctx.app.inject({
       method: "POST",
@@ -122,23 +150,17 @@ test("community builds offer observed agents only: no registry, agent MCP tools 
   }
 });
 
-test("community governance keeps PII masking and shows paid controls as upgrade cards", async () => {
+test("community governance keeps PII masking and gates the paid controls", async () => {
   const ctx = await createTestApp();
   try {
     const session = await seedSession(ctx);
     const page = await ctx.app.inject({ method: "GET", url: "/ui/governance", headers: bearer(session.key) });
     expect(page.statusCode).toBe(200);
-    expect(page.body).toContain("PII masking");
-    expect(page.body).toContain('id="gv-save"');
-    expect(page.body).not.toContain('id="gv-pol-create"');
-    expect(page.body).toContain('href="/ui/locked/policies"');
-    expect(page.body).toContain('href="/ui/locked/routing"');
-    expect(page.body).toContain('href="/ui/locked/external-exports"');
+    expectSpaShell(page.body);
 
     const compliance = await ctx.app.inject({ method: "GET", url: "/ui/compliance", headers: bearer(session.key) });
-    expect(compliance.body).toContain("EU AI Act compliance");
-    expect(compliance.body).toContain("Activate a license");
-    expect(compliance.body).toContain('href="/ui/locked/compliance"');
+    expect(compliance.statusCode).toBe(200);
+    expectSpaShell(compliance.body);
 
     for (const url of ["/api/policies", "/api/routing/rules", "/api/audit", "/api/exports", "/api/compliance/summary"]) {
       expect((await ctx.app.inject({ method: "GET", url, headers: bearer(session.key) })).statusCode).toBe(404);
@@ -155,12 +177,12 @@ test("community shows judge and online evals as upgrade cards, without the judge
     const session = await seedSession(ctx);
     const datasets = await ctx.app.inject({ method: "GET", url: "/ui/datasets", headers: bearer(session.key) });
     expect(datasets.statusCode).toBe(200);
-    expect(datasets.body).not.toContain('id="jd-save"');
-    expect(datasets.body).toContain('href="/ui/locked/judge"');
+    expectSpaShell(datasets.body);
 
     await ctx.repos.projects.create({ id: crypto.randomUUID(), user_id: session.user.id, name: "Default", created_at: new Date().toISOString() });
     const projects = await ctx.app.inject({ method: "GET", url: "/ui/projects", headers: bearer(session.key) });
-    expect(projects.body).toContain('href="/ui/locked/online-evals"');
+    expect(projects.statusCode).toBe(200);
+    expectSpaShell(projects.body);
 
     for (const [method, url] of [
       ["GET", "/api/judge/settings"],
@@ -180,7 +202,7 @@ test("community shows judge and online evals as upgrade cards, without the judge
   }
 });
 
-test("every community page's inline scripts compile", async () => {
+test("every community page serves the console shell", async () => {
   const ctx = await createTestApp();
   try {
     const session = await seedSession(ctx);
@@ -205,25 +227,11 @@ test("every community page's inline scripts compile", async () => {
       "/ui/live", "/ui/insights", "/ui/playground", "/ui/agents/observed", "/ui/prompts", "/ui/datasets", "/ui/cost",
       "/ui/projects", "/ui/team", "/ui/keys", "/ui/integrations", "/ui/governance", "/ui/compliance", "/ui/settings", "/ui/query",
     ];
-    const failures: string[] = [];
     for (const url of pages) {
       const res = await ctx.app.inject({ method: "GET", url, headers: bearer(session.key) });
-      if (res.statusCode !== 200) {
-        failures.push(`${url}: HTTP ${res.statusCode}`);
-        continue;
-      }
-      [...res.body.matchAll(/<script>([\s\S]*?)<\/script>/g)].forEach((match, index) => {
-        try {
-          new Function(match[1]);
-        } catch (err) {
-          failures.push(`${url} script#${index}: ${(err as Error).message}`);
-        }
-      });
+      expect(res.statusCode, url).toBe(200);
+      expectSpaShell(res.body);
     }
-    expect(failures).toEqual([]);
-    const runPage = await ctx.app.inject({ method: "GET", url: `/ui/runs/${runId}`, headers: bearer(session.key) });
-    expect(runPage.body).toContain('id="rd-cost-panel"');
-    expect(runPage.body).toContain('href="/ui/locked/judge"');
   } finally {
     await ctx.cleanup();
   }

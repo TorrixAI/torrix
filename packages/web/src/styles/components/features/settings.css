@@ -1,0 +1,4 @@
+/* Settings page rules (pre-utilities). */
+.settings-section{background:transparent;border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none;margin:0;scroll-margin-top:58px}
+.settings-section .panel-head{padding:14px 0;border-bottom:0}
+.settings-section .panel-body{padding:0 0 24px}
