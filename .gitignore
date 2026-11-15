@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .bun-cache/
+# bun leaves these in the working directory during a build; never publish one
+*.bun-build
 .DS_Store
 *.sqlite*
 .env
