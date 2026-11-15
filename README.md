@@ -80,8 +80,12 @@ Prefer to run from source? You need [Bun](https://bun.sh) 1.2 or newer:
 git clone https://github.com/TorrixAI/torrix.git
 cd torrix
 bun install
+bun run build     # the server serves the console from packages/web/dist
 bun run start
 ```
+
+The console is a Vite build, so `bun run build` is required once before the first start. For
+development, `bun run dev` serves the console with hot reload instead.
 
 ## Send your first call
 

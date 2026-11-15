@@ -12,8 +12,12 @@ Pick whichever is easiest for you.
 git clone https://github.com/TorrixAI/torrix.git
 cd torrix
 bun install
+bun run build
 bun run start
 ```
+
+The `bun run build` step compiles the console; without it the server starts but serves a page that
+tells you to build it.
 
 **With Docker:**
 

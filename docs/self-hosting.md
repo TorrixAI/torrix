@@ -89,6 +89,7 @@ bun run compile:all   # every platform
 
 ```bash
 bun install
+bun run build      # the console bundle, served from packages/web/dist
 bun run start      # or `bun run dev` to restart on code changes
 ```
 
