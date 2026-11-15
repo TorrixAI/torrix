@@ -46,11 +46,13 @@ function CoveragePanel() {
         </div> : <>
           <div className="coverage-summary">
             <span className="coverage-num">{percentLabel}</span>
-            <span className="panel-note">{coverage.covered} of {observed} observed agent{observed === 1 ? "" : "s"} match a registered agent</span>
+            <span className="panel-note">{coverage.covered} of {observed} observed agent{observed === 1 ? " matches" : "s match"} a registered agent</span>
           </div>
-          <div className="coverage-track" role="progressbar" aria-label="Governed coverage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+          {percent > 0 ? <div className="coverage-track" role="progressbar" aria-label="Governed coverage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
             <div style={{ width: `${percent}%` }} />
-          </div>
+          </div> : <p className="coverage-zero">
+            None of the observed traffic is governed yet. <Link className="coverage-link" to="/ui/agents">Register an agent</Link> to start measuring coverage.
+          </p>}
           {coverage.uncovered.length ? <div className="table-wrap"><table>
             <thead><tr><th>Uncovered agent</th><th className="num">Runs</th><th className="num">Cost</th><th>Last seen</th></tr></thead>
             <tbody>{coverage.uncovered.slice(0, 6).map((agent) => <tr key={agent.name}>
