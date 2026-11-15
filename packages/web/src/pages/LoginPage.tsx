@@ -3,6 +3,9 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { ThemeToggle, TorrixMark } from "../icons";
+import { Trend } from "../components";
+import { capUsage } from "@/lib/capUsage";
+import { formatMoney } from "@/lib/format";
 
 // Pre-auth surface. Served at /ui/login (the server route no longer renders
 // HTML), so it must work with no session and set localStorage.torrix_key the
@@ -13,6 +16,72 @@ type Tab = "login" | "signup" | "key";
 const CHECK = <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M3 8.5 6.5 12 13 4.5" /></svg>;
 const EYE_ON = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>;
 const EYE_OFF = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l18 18M10.6 5.1A10.6 10.6 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.2 6.2A17 17 0 0 0 2 12s3.6 7 10 7a10.6 10.6 0 0 0 4-.8" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></svg>;
+
+// A small, honest preview of the first console screen: month-to-date spend
+// climbing against the same days last month, dashed, plus the hard cap that
+// enforces it. Fixed numbers, no data fetching, decorative only, so the pre-auth
+// page stays static and cheap. The total, the peak, the delta and the cap gauge
+// are all derived from these arrays, so the panel can never claim a number its
+// own bars contradict.
+const SIGNAL_SPEND = [1032, 1042, 1186, 1128, 1364, 1298, 1542, 1476, 1784, 1706, 1962, 2118, 2054, 2496, 2842];
+const SIGNAL_PREV = [742, 728, 842, 796, 962, 918, 1088, 1042, 1256, 1204, 1382, 1498, 1452, 1764, 2012];
+const SIGNAL_DATES: Array<[number, string]> = [[0, "1 Nov"], [4, "5 Nov"], [8, "9 Nov"], [12, "13 Nov"]];
+const SIGNAL_BUDGET = 30_000;
+const MONTH_DAYS = 30;
+
+const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
+const SIGNAL_TOTAL = sum(SIGNAL_SPEND);
+const SIGNAL_PREV_TOTAL = sum(SIGNAL_PREV);
+const SIGNAL_DAYS_LEFT = MONTH_DAYS - SIGNAL_SPEND.length;
+
+function LoginSignal() {
+  const BASE = 88;
+  const TOP = 24;
+  const BAR_W = 16;
+  const STEP = 24;
+  const peak = Math.max(...SIGNAL_SPEND);
+  const LEFT = (396 - (BAR_W + (SIGNAL_SPEND.length - 1) * STEP)) / 2;
+  const MAX = Math.max(peak, ...SIGNAL_PREV) * 1.06;
+  const y = (value: number) => BASE - (value / MAX) * (BASE - TOP);
+  const centre = (index: number) => LEFT + index * STEP + BAR_W / 2;
+  const peakIndex = SIGNAL_SPEND.indexOf(peak);
+  const usage = capUsage(SIGNAL_TOTAL, SIGNAL_BUDGET);
+  return <div className="lg-panel">
+    <div className="lg-panel-head">
+      <span className="lg-panel-label">Spend, this month</span>
+      <span className="lg-panel-figures">
+        <span className="lg-panel-total">{formatMoney(SIGNAL_TOTAL)}</span>
+        <Trend current={SIGNAL_TOTAL} previous={SIGNAL_PREV_TOTAL} metric="spend" />
+      </span>
+    </div>
+    <svg className="lg-chart" viewBox="0 0 396 116" role="presentation">
+      {[BASE, 66, 44, 22].map((line) => <line key={line} className="lg-chart-grid" x1={0} x2={396} y1={line} y2={line} />)}
+      <polyline className="lg-chart-prev" points={SIGNAL_PREV.map((value, index) => `${centre(index)},${y(value)}`).join(" ")} />
+      {SIGNAL_SPEND.map((value, index) => (
+        <rect key={index} className={index === peakIndex ? "lg-bar is-peak" : "lg-bar"}
+          x={LEFT + index * STEP} y={y(value)} width={BAR_W} height={BASE - y(value)} rx={2} />
+      ))}
+      <text className="lg-chart-peak" x={centre(peakIndex)} y={y(peak) - 8} textAnchor="middle">{formatMoney(peak)}</text>
+      {SIGNAL_DATES.map(([index, label]) => (
+        <text key={label} className="lg-day" x={centre(index)} y={104} textAnchor="middle">{label}</text>
+      ))}
+    </svg>
+    <div className="lg-panel-legend"><span className="lg-legend-dash" />Same days last month</div>
+    {usage ? <div className="lg-gauge">
+      <div className="lg-gauge-track" role="progressbar" aria-label={`Spend against the monthly budget: ${usage.label}`}
+        aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(usage.rawPct)}>
+        <span className={`lg-gauge-fill ${usage.tone}`} style={{ width: `${usage.pct}%` }} />
+      </div>
+      <div className="lg-gauge-meta">
+        <span className={`lg-gauge-state ${usage.tone}`}>
+          <span aria-hidden="true">{usage.tone === "limit" ? "✕" : usage.tone === "warn" ? "▲" : "✓"}</span>{usage.label}
+        </span>
+        <span>{Math.round(usage.rawPct)}% of {formatMoney(SIGNAL_BUDGET)} · {SIGNAL_DAYS_LEFT} days left</span>
+      </div>
+    </div> : null}
+  </div>;
+}
+;
 
 export default function LoginPage() {
   const [tab, setTab] = useState<Tab>("login");
@@ -140,12 +209,9 @@ export default function LoginPage() {
               <li>{CHECK}<span>Policies and approvals enforced before an agent acts</span></li>
               <li>{CHECK}<span>Self-hosted: your data never leaves this machine</span></li>
             </ul>
-          </div>
-          <div className="lg-signal">
-            <svg viewBox="0 0 460 118" fill="none" aria-hidden="true">
-              <path d="M0 96L42 88L76 68L112 80L156 54L198 72L242 38L286 60L330 24L374 48L414 30L460 40" stroke="var(--line-2)" strokeWidth={1.4} strokeLinejoin="round" />
-              <path d="M0 108L42 100L76 82L112 94L156 68L198 86L242 52L286 74L330 38L374 62L414 44L460 54" stroke="var(--text-3)" strokeWidth={1.2} strokeLinejoin="round" opacity=".55" />
-            </svg>
+            <div className="lg-signal">
+              <LoginSignal />
+            </div>
           </div>
           <div className="lg-hero-foot">{version ? `Torrix v${version} · self-hosted` : "Torrix · self-hosted"}</div>
         </div>
@@ -153,7 +219,6 @@ export default function LoginPage() {
       <main className="lg-main">
         <div className="lg-card">
           <div className="lg-card-head"><TorrixMark className="brand-mark" /><div><span className="word">Torrix</span><span className="lg-edition">Self-hosted console</span></div></div>
-          <p className="lg-card-tag">The system of record for AI agents</p>
           <ToggleGroup className="lg-tabs console-tabs" type="single" value={tab} onValueChange={(value) => { if (!value) return; setTab(value as Tab); setError(""); }}>
             <ToggleGroupItem value="login" className={tab === "login" ? "active" : ""}>Sign in</ToggleGroupItem>
             {signupOpen ? <ToggleGroupItem value="signup" className={tab === "signup" ? "active" : ""}>Create account</ToggleGroupItem> : null}
@@ -198,7 +263,6 @@ export default function LoginPage() {
             <p className="lg-hint">Shown once: store it somewhere safe. You can paste it back into “I have a key”.</p>
             <Button className="lg-btn mt-4.5" type="button" onClick={() => window.location.assign(next)}>Open dashboard</Button>
           </div> : null}
-          <p className="lg-foot">{version ? `v${version} · ` : ""}Self-hosted · your data never leaves this machine</p>
         </div>
       </main>
     </div>
